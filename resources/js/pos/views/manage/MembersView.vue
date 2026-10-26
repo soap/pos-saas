@@ -17,6 +17,7 @@ const form = ref({ email: '', name: '', password: '', role: 'cashier' as RoleSlu
 const formError = ref<ApiError | null>(null);
 const isSaving = ref(false);
 const removing = ref<{ member: Member; role: string } | null>(null);
+const suspending = ref<Member | null>(null);
 
 const storeName = computed(() => new Map(stores.value.map((s) => [s.id, s.name])));
 
@@ -96,6 +97,20 @@ async function confirmRemove(): Promise<void> {
     }
 }
 
+async function setStatus(member: Member, status: 'active' | 'suspended'): Promise<void> {
+    isSaving.value = true;
+    try {
+        await api.patch(`/members/${member.membership_id}`, { status });
+        toast(status === 'suspended' ? `ระงับ ${member.user.name} แล้ว` : `เปิดใช้ ${member.user.name} แล้ว`, 'success');
+        suspending.value = null;
+        await load();
+    } catch (e) {
+        toastError(e);
+    } finally {
+        isSaving.value = false;
+    }
+}
+
 onMounted(load);
 </script>
 
@@ -121,7 +136,26 @@ onMounted(load);
                     <p class="truncate text-sm text-slate-500">{{ member.user.email }}</p>
                     <p class="text-xs text-slate-500">สาขา: {{ member.store_ids.map((id) => storeName.get(id) ?? 'สาขาอื่น').join(', ') || '—' }}</p>
                 </div>
-                <div class="flex flex-wrap gap-1.5">
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <template v-if="member.user.id !== auth.user?.id">
+                        <button
+                            v-if="member.status === 'active'"
+                            type="button"
+                            class="rounded-lg px-2 py-1 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                            @click="suspending = member"
+                        >
+                            ระงับ
+                        </button>
+                        <button
+                            v-else
+                            type="button"
+                            class="rounded-lg px-2 py-1 text-sm font-medium text-teal-700 hover:bg-teal-50"
+                            :disabled="isSaving"
+                            @click="setStatus(member, 'active')"
+                        >
+                            เปิดใช้งาน
+                        </button>
+                    </template>
                     <span v-if="member.roles.length === 0" class="text-sm text-slate-400">ไม่มีสิทธิ์</span>
                     <span v-for="(role, index) in member.roles" :key="index" class="inline-flex items-center gap-1 rounded-full bg-teal-50 py-1 pr-1 pl-3 text-sm text-teal-900 ring-1 ring-teal-200">
                         {{ roleLabel(role.role) }}<template v-if="role.store_id"> · {{ storeName.get(role.store_id) ?? 'สาขาอื่น' }}</template>
@@ -190,6 +224,17 @@ onMounted(load);
             <template #footer>
                 <button type="button" class="btn btn-secondary flex-1" @click="adding = false">ยกเลิก</button>
                 <button type="submit" form="member-form" class="btn btn-primary flex-2" :disabled="isSaving || form.store_ids.length === 0">เพิ่มพนักงาน</button>
+            </template>
+        </BaseModal>
+
+        <BaseModal v-if="suspending" title="ระงับพนักงาน" @close="suspending = null">
+            <p>
+                ระงับ <strong>{{ suspending.user.name }}</strong> ({{ suspending.user.email }})?
+                ระบบจะปฏิเสธการใช้งานร้านนี้ทันที รวมถึงเครื่องที่ login ค้างไว้ — บทบาทและสาขายังเก็บไว้ เปิดใช้งานคืนได้ภายหลัง
+            </p>
+            <template #footer>
+                <button type="button" class="btn btn-secondary flex-1" @click="suspending = null">ไม่ระงับ</button>
+                <button type="button" class="btn btn-danger flex-2" :disabled="isSaving" @click="setStatus(suspending, 'suspended')">ระงับ</button>
             </template>
         </BaseModal>
 

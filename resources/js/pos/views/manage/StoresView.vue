@@ -18,6 +18,8 @@ const form = ref({ code: '', name: '', timezone: 'Asia/Bangkok', kitchen_enabled
 const formError = ref<ApiError | null>(null);
 const isSaving = ref(false);
 const assigningStoreId = ref<string | null>(null);
+const editingStore = ref<ManagedStore | null>(null);
+const editForm = ref({ name: '', status: 'active' as 'active' | 'inactive', kitchen_enabled: true, tax_mode: 'none' as 'none' | 'inclusive' });
 
 const canConfigurePayments = computed(() => session.can('payments.configure'));
 const activeAccounts = computed(() => accounts.value.filter((a) => a.status === 'active'));
@@ -69,6 +71,39 @@ async function create(): Promise<void> {
     }
 }
 
+function openEdit(store: ManagedStore): void {
+    editingStore.value = store;
+    editForm.value = {
+        name: store.name,
+        status: store.status === 'inactive' ? 'inactive' : 'active',
+        kitchen_enabled: store.settings?.kitchen_enabled ?? true,
+        tax_mode: store.settings?.tax_mode ?? 'none',
+    };
+}
+
+async function saveEdit(): Promise<void> {
+    const store = editingStore.value;
+    if (!store) {
+        return;
+    }
+    isSaving.value = true;
+    try {
+        await api.patch(`/stores/${store.id}`, {
+            name: editForm.value.name.trim(),
+            status: editForm.value.status,
+            settings: { kitchen_enabled: editForm.value.kitchen_enabled, tax_mode: editForm.value.tax_mode },
+        });
+        toast('บันทึกสาขาแล้ว', 'success');
+        editingStore.value = null;
+        // ชื่อสาขา/การใช้ครัวของสาขาปัจจุบันมีผลกับหน้าขายทันที
+        await Promise.all([load(), auth.fetchMe(), store.id === session.storeId ? session.load() : null]);
+    } catch (e) {
+        toastError(e);
+    } finally {
+        isSaving.value = false;
+    }
+}
+
 async function assignAccount(store: ManagedStore, accountId: string): Promise<void> {
     assigningStoreId.value = store.id;
     try {
@@ -104,7 +139,7 @@ onMounted(load);
                         <p class="font-semibold">{{ store.name }} <span class="font-normal text-slate-500">({{ store.code }})</span></p>
                         <p class="text-sm text-slate-500">{{ store.timezone }}</p>
                     </div>
-                    <div class="flex flex-wrap gap-1.5 text-xs">
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs">
                         <span v-if="store.status !== 'active'" class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">ปิดใช้งาน</span>
                         <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">
                             {{ store.settings?.kitchen_enabled === false ? 'ไม่ใช้ครัว' : 'ใช้จอครัว' }}
@@ -112,6 +147,14 @@ onMounted(load);
                         <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">
                             {{ store.settings?.tax_mode === 'inclusive' ? 'ราคารวม VAT' : 'ไม่คิด VAT' }}
                         </span>
+                        <button
+                            v-if="session.can('stores.manage')"
+                            type="button"
+                            class="ml-1 rounded-lg px-2 py-1 text-sm font-medium text-teal-700 hover:bg-teal-50"
+                            @click="openEdit(store)"
+                        >
+                            แก้ไข
+                        </button>
                     </div>
                 </div>
 
@@ -139,6 +182,45 @@ onMounted(load);
                 </div>
             </li>
         </ul>
+
+        <BaseModal v-if="editingStore" :title="`แก้ไขสาขา ${editingStore.code}`" @close="editingStore = null">
+            <form id="edit-store-form" class="space-y-4" @submit.prevent="saveEdit">
+                <p class="text-sm text-slate-500">รหัสสาขาและเขตเวลาแก้ไม่ได้ (ผูกกับเลขออเดอร์และวันทำการ)</p>
+                <div>
+                    <label for="edit-store-name" class="field-label">ชื่อสาขา</label>
+                    <input id="edit-store-name" v-model="editForm.name" type="text" required maxlength="255" class="input" />
+                </div>
+                <div>
+                    <label for="edit-store-tax" class="field-label">ภาษีมูลค่าเพิ่ม (มีผลกับออเดอร์ใหม่)</label>
+                    <select id="edit-store-tax" v-model="editForm.tax_mode" class="input">
+                        <option value="none">ไม่คิด VAT</option>
+                        <option value="inclusive">ราคารวม VAT แล้ว</option>
+                    </select>
+                </div>
+                <label class="flex items-center gap-3">
+                    <input v-model="editForm.kitchen_enabled" type="checkbox" class="size-5 accent-teal-700" />
+                    <span>ใช้จอครัว (ต้องส่งครัวก่อนปิดออเดอร์)</span>
+                </label>
+                <label class="flex items-center gap-3">
+                    <input
+                        v-model="editForm.status"
+                        type="checkbox"
+                        true-value="active"
+                        false-value="inactive"
+                        class="size-5 accent-teal-700"
+                        :disabled="editingStore.id === session.storeId"
+                    />
+                    <span>
+                        เปิดใช้งานสาขา
+                        <span v-if="editingStore.id === session.storeId" class="block text-xs text-slate-500">ปิดสาขาที่กำลังใช้งานอยู่ไม่ได้</span>
+                    </span>
+                </label>
+            </form>
+            <template #footer>
+                <button type="button" class="btn btn-secondary flex-1" @click="editingStore = null">ยกเลิก</button>
+                <button type="submit" form="edit-store-form" class="btn btn-primary flex-2" :disabled="isSaving || editForm.name.trim() === ''">บันทึก</button>
+            </template>
+        </BaseModal>
 
         <BaseModal v-if="creating" title="เพิ่มสาขา" @close="creating = false">
             <form id="store-form" class="space-y-4" @submit.prevent="create">

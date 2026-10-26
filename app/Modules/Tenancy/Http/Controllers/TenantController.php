@@ -83,6 +83,33 @@ class TenantController extends Controller
         return response()->json(['data' => $store], 201);
     }
 
+    /**
+     * PATCH /stores/{id} — ชื่อ/สถานะ/settings (merge ทีละ key); code และ timezone แก้ไม่ได้ (ผูกกับเลขออเดอร์และ business_date)
+     */
+    public function updateStore(Request $request, string $id): JsonResponse
+    {
+        $store = Store::query()->findOrFail($id);
+        $data = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'status' => ['sometimes', Rule::in(['active', 'inactive'])],
+            'settings' => ['sometimes', 'array:kitchen_enabled,tax_mode'],
+            'settings.kitchen_enabled' => ['sometimes', 'boolean'],
+            'settings.tax_mode' => ['sometimes', Rule::in(Store::TAX_MODES)],
+        ]);
+        if (($data['status'] ?? null) === 'inactive' && $this->ctx->hasStore() && $this->ctx->store()->id === $store->id) {
+            throw ApiException::unprocessable('cannot_deactivate_current_store', 'ปิดสาขาที่กำลังใช้งานอยู่ไม่ได้ ให้สลับไปสาขาอื่นก่อน');
+        }
+
+        $before = $store->only(['name', 'status', 'settings']);
+        if (isset($data['settings'])) {
+            $data['settings'] = array_merge($store->settings ?? [], $data['settings']);
+        }
+        $store->update($data);
+        $this->audit->log('store.updated', $store, ['before' => $before, 'after' => $store->only(['name', 'status', 'settings'])]);
+
+        return response()->json(['data' => $store->only(['id', 'code', 'name', 'timezone', 'status', 'settings', 'qr_payment_account_id'])]);
+    }
+
     /** GET /members */
     public function members(): JsonResponse
     {
@@ -148,6 +175,25 @@ class TenantController extends Controller
         ]);
 
         return response()->json(['data' => ['membership_id' => $membership->id, 'user_id' => $membership->user_id]], 201);
+    }
+
+    /**
+     * PATCH /members/{id} — ระงับ/เปิดการเข้าถึง tenant นี้ (บัญชีผู้ใช้ยังใช้กับ tenant อื่นได้)
+     * ระงับแล้ว ResolveTenant จะปฏิเสธทุก request ของ tenant นี้ทันที แม้ token เดิมยังไม่หมดอายุ
+     */
+    public function updateMember(Request $request, string $id): JsonResponse
+    {
+        $membership = TenantMembership::query()->findOrFail($id);
+        $data = $request->validate(['status' => ['required', Rule::in(['active', 'suspended'])]]);
+        if ($membership->user_id === $this->ctx->user()->id) {
+            throw ApiException::unprocessable('cannot_change_own_membership', 'เปลี่ยนสถานะของตัวเองไม่ได้');
+        }
+
+        $from = $membership->status;
+        $membership->update(['status' => $data['status']]);
+        $this->audit->log('member.status_changed', $membership, ['user_id' => $membership->user_id, 'from' => $from, 'to' => $data['status']]);
+
+        return response()->json(['data' => ['membership_id' => $membership->id, 'status' => $membership->status]]);
     }
 
     /** DELETE /members/{membership}/roles/{role} */

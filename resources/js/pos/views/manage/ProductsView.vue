@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ApiError, api } from '@pos/api/client';
-import type { Category, ManagedModifierGroup, Product } from '@pos/api/types';
+import type { Category, ManagedModifierGroup, Product, StorePrice } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
+import StorePriceDialog from '@pos/components/StorePriceDialog.vue';
 import { formatBaht, parseBahtToSatang } from '@pos/lib/money';
 import { toast, toastError } from '@pos/lib/toast';
+import { useSessionStore } from '@pos/stores/session';
 
 interface ProductForm {
     name: string;
@@ -17,9 +19,13 @@ interface ProductForm {
     modifier_group_ids: string[];
 }
 
+const session = useSessionStore();
 const products = ref<Product[]>([]);
 const categories = ref<Category[]>([]);
 const groups = ref<ManagedModifierGroup[]>([]);
+/** product_id → ราคา/การขายที่สาขาปัจจุบัน */
+const storePrices = ref<Map<string, StorePrice>>(new Map());
+const pricingProduct = ref<Product | null>(null);
 const isLoading = ref(true);
 const search = ref('');
 const categoryFilter = ref('');
@@ -46,11 +52,13 @@ function emptyForm(): ProductForm {
 
 async function load(): Promise<void> {
     try {
-        const [productResponse, categoryResponse, groupResponse] = await Promise.all([
+        const [productResponse, categoryResponse, groupResponse, priceResponse] = await Promise.all([
             api.get<{ data: Product[] }>('/products'),
             api.get<{ data: Category[] }>('/categories'),
             api.get<{ data: ManagedModifierGroup[] }>('/modifier-groups'),
+            api.get<{ data: StorePrice[] }>('/store-prices'),
         ]);
+        storePrices.value = new Map(priceResponse.data.map((p) => [p.product_id, p]));
         products.value = productResponse.data;
         categories.value = categoryResponse.data;
         groups.value = groupResponse.data;
@@ -123,7 +131,7 @@ onMounted(load);
         <header class="flex flex-wrap items-center justify-between gap-4">
             <div>
                 <h1 class="text-2xl font-semibold">สินค้า</h1>
-                <p class="text-sm text-slate-500">ราคาตั้งต้นใช้ทุกสาขา · เปลี่ยนราคาไม่กระทบออเดอร์เดิม</p>
+                <p class="text-sm text-slate-500">ราคาตั้งต้นใช้ทุกสาขา · ตั้งราคา/งดขายเฉพาะสาขา {{ session.context?.store?.name }} ได้ที่คอลัมน์ขวา · เปลี่ยนราคาไม่กระทบออเดอร์เดิม</p>
             </div>
             <button type="button" class="btn btn-primary" @click="open('new')">+ เพิ่มสินค้า</button>
         </header>
@@ -140,8 +148,8 @@ onMounted(load);
         <p v-if="isLoading" class="text-slate-500">กำลังโหลด…</p>
         <p v-else-if="filtered.length === 0" class="rounded-2xl bg-white p-8 text-center text-slate-500 ring-1 ring-slate-200">ไม่พบสินค้า</p>
         <ul v-else class="divide-y divide-slate-100 overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
-            <li v-for="product in filtered" :key="product.id">
-                <button type="button" class="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-slate-50" @click="open(product)">
+            <li v-for="product in filtered" :key="product.id" class="flex items-stretch">
+                <button type="button" class="flex min-w-0 flex-1 items-center gap-4 px-4 py-3 text-left hover:bg-slate-50" @click="open(product)">
                     <span class="min-w-0 flex-1">
                         <span class="block font-medium" :class="{ 'text-slate-400': product.status === 'inactive' }">{{ product.name }}</span>
                         <span class="block text-sm text-slate-500">
@@ -152,8 +160,29 @@ onMounted(load);
                     <span v-if="product.status === 'inactive'" class="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">ปิดขาย</span>
                     <span class="font-semibold tabular-nums">{{ formatBaht(product.base_price_satang) }}</span>
                 </button>
+                <button
+                    type="button"
+                    class="w-28 shrink-0 border-l border-slate-100 px-3 text-right text-xs hover:bg-slate-50"
+                    :aria-label="`ราคาที่สาขานี้ของ ${product.name}`"
+                    @click="pricingProduct = product"
+                >
+                    <template v-if="storePrices.get(product.id)?.is_available === false"><span class="font-semibold text-rose-600">งดขายสาขานี้</span></template>
+                    <template v-else-if="storePrices.has(product.id)">
+                        <span class="block text-slate-500">ราคาสาขา</span>
+                        <span class="font-semibold text-teal-800 tabular-nums">{{ formatBaht(storePrices.get(product.id)!.price_satang) }}</span>
+                    </template>
+                    <span v-else class="text-slate-400">ตั้งราคาสาขา</span>
+                </button>
             </li>
         </ul>
+
+        <StorePriceDialog
+            v-if="pricingProduct"
+            :product="pricingProduct"
+            :current="storePrices.get(pricingProduct.id) ?? null"
+            @close="pricingProduct = null"
+            @saved="pricingProduct = null; load()"
+        />
 
         <BaseModal v-if="editing" :title="editing === 'new' ? 'เพิ่มสินค้า' : 'แก้ไขสินค้า'" size="lg" @close="editing = null">
             <form id="product-form" class="grid gap-4 sm:grid-cols-2" @submit.prevent="save">

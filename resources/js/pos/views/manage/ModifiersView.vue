@@ -16,6 +16,13 @@ const creating = ref(false);
 const groupForm = ref({ name: '', min_select: 0, max_select: 1, is_required: false, options: [{ name: '', price: '0' }] });
 
 const editingOption = ref<Option | null>(null);
+
+const editingGroup = ref<ManagedModifierGroup | null>(null);
+const editGroupForm = ref({ name: '', min_select: 0, max_select: 1, is_required: false });
+
+/** กลุ่มที่กำลังเพิ่มตัวเลือกใหม่ */
+const addingTo = ref<ManagedModifierGroup | null>(null);
+const newOption = ref({ name: '', price: '0' });
 const optionForm = ref({ name: '', price: '0', is_active: true });
 
 /** ราคาตัวเลือกติดลบได้ (เช่น ไม่ใส่ไข่ −5) */
@@ -76,6 +83,51 @@ async function createGroup(): Promise<void> {
     }
 }
 
+function openGroup(group: ManagedModifierGroup): void {
+    editingGroup.value = group;
+    editGroupForm.value = { name: group.name, min_select: group.min_select, max_select: group.max_select, is_required: group.is_required };
+}
+
+async function saveGroup(): Promise<void> {
+    if (!editingGroup.value) {
+        return;
+    }
+    isSaving.value = true;
+    try {
+        await api.patch(`/modifier-groups/${editingGroup.value.id}`, { ...editGroupForm.value, name: editGroupForm.value.name.trim() });
+        toast('บันทึกกลุ่มแล้ว', 'success');
+        editingGroup.value = null;
+        await load();
+    } catch (e) {
+        toastError(e);
+    } finally {
+        isSaving.value = false;
+    }
+}
+
+function openAddOption(group: ManagedModifierGroup): void {
+    addingTo.value = group;
+    newOption.value = { name: '', price: '0' };
+}
+
+async function addOption(): Promise<void> {
+    const price = toSatang(newOption.value.price);
+    if (!addingTo.value || price === null) {
+        return;
+    }
+    isSaving.value = true;
+    try {
+        await api.post(`/modifier-groups/${addingTo.value.id}/options`, { name: newOption.value.name.trim(), price_delta_satang: price });
+        toast('เพิ่มตัวเลือกแล้ว', 'success');
+        addingTo.value = null;
+        await load();
+    } catch (e) {
+        toastError(e);
+    } finally {
+        isSaving.value = false;
+    }
+}
+
 function openOption(option: Option): void {
     editingOption.value = option;
     optionForm.value = { name: option.name, price: (option.price_delta_satang / 100).toFixed(2), is_active: option.is_active };
@@ -122,9 +174,12 @@ onMounted(load);
         <section v-for="group in groups" :key="group.id" class="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
             <header class="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 px-4 py-3">
                 <h2 class="font-semibold">{{ group.name }}</h2>
-                <p class="text-sm text-slate-500">
-                    {{ group.is_required ? 'บังคับเลือก' : 'ไม่บังคับ' }} · เลือก {{ group.min_select }}–{{ group.max_select }}
-                </p>
+                <div class="flex items-center gap-3">
+                    <p class="text-sm text-slate-500">
+                        {{ group.is_required ? 'บังคับเลือก' : 'ไม่บังคับ' }} · เลือก {{ group.min_select }}–{{ group.max_select }}
+                    </p>
+                    <button type="button" class="text-sm font-medium text-teal-700 hover:underline" @click="openGroup(group)">แก้ไขกลุ่ม</button>
+                </div>
             </header>
             <ul class="divide-y divide-slate-100">
                 <li v-for="option in group.options" :key="option.id">
@@ -133,6 +188,11 @@ onMounted(load);
                         <span class="text-sm tabular-nums" :class="option.price_delta_satang < 0 ? 'text-rose-600' : 'text-slate-600'">
                             {{ option.price_delta_satang > 0 ? '+' : '' }}{{ formatBaht(option.price_delta_satang) }}
                         </span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button" class="w-full px-4 py-2.5 text-left text-sm font-medium text-teal-700 hover:bg-slate-50" @click="openAddOption(group)">
+                        + เพิ่มตัวเลือก
                     </button>
                 </li>
             </ul>
@@ -186,6 +246,65 @@ onMounted(load);
             <template #footer>
                 <button type="button" class="btn btn-secondary flex-1" @click="creating = false">ยกเลิก</button>
                 <button type="submit" form="group-form" class="btn btn-primary flex-2" :disabled="isSaving || !groupFormValid">สร้างกลุ่ม</button>
+            </template>
+        </BaseModal>
+
+        <BaseModal v-if="editingGroup" :title="`แก้ไขกลุ่ม ${editingGroup.name}`" @close="editingGroup = null">
+            <form id="edit-group-form" class="space-y-4" @submit.prevent="saveGroup">
+                <p class="text-sm text-slate-500">ออเดอร์เดิมไม่เปลี่ยน (เก็บชื่อกลุ่ม/ตัวเลือกไว้ตอนสั่งแล้ว)</p>
+                <div>
+                    <label for="edit-group-name" class="field-label">ชื่อกลุ่ม</label>
+                    <input id="edit-group-name" v-model="editGroupForm.name" type="text" required maxlength="255" class="input" />
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="edit-group-min" class="field-label">เลือกอย่างน้อย</label>
+                        <input id="edit-group-min" v-model.number="editGroupForm.min_select" type="number" min="0" step="1" class="input" />
+                    </div>
+                    <div>
+                        <label for="edit-group-max" class="field-label">เลือกได้สูงสุด</label>
+                        <input id="edit-group-max" v-model.number="editGroupForm.max_select" type="number" min="1" step="1" class="input" />
+                    </div>
+                </div>
+                <label class="flex items-center gap-3">
+                    <input v-model="editGroupForm.is_required" type="checkbox" class="size-5 accent-teal-700" />
+                    <span>บังคับเลือก</span>
+                </label>
+            </form>
+            <template #footer>
+                <button type="button" class="btn btn-secondary flex-1" @click="editingGroup = null">ยกเลิก</button>
+                <button
+                    type="submit"
+                    form="edit-group-form"
+                    class="btn btn-primary flex-2"
+                    :disabled="isSaving || editGroupForm.name.trim() === '' || editGroupForm.max_select < Math.max(1, editGroupForm.min_select)"
+                >
+                    บันทึก
+                </button>
+            </template>
+        </BaseModal>
+
+        <BaseModal v-if="addingTo" :title="`เพิ่มตัวเลือกใน ${addingTo.name}`" @close="addingTo = null">
+            <form id="add-option-form" class="space-y-4" @submit.prevent="addOption">
+                <div>
+                    <label for="new-option-name" class="field-label">ชื่อตัวเลือก</label>
+                    <input id="new-option-name" v-model="newOption.name" type="text" required maxlength="255" class="input" />
+                </div>
+                <div>
+                    <label for="new-option-price" class="field-label">ราคาเพิ่ม/ลด (บาท)</label>
+                    <input id="new-option-price" v-model="newOption.price" type="text" inputmode="decimal" class="input text-right tabular-nums" />
+                </div>
+            </form>
+            <template #footer>
+                <button type="button" class="btn btn-secondary flex-1" @click="addingTo = null">ยกเลิก</button>
+                <button
+                    type="submit"
+                    form="add-option-form"
+                    class="btn btn-primary flex-2"
+                    :disabled="isSaving || newOption.name.trim() === '' || toSatang(newOption.price) === null"
+                >
+                    เพิ่ม
+                </button>
             </template>
         </BaseModal>
 

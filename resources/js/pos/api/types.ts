@@ -323,3 +323,10 @@ export interface DiningTable {
     /** null = โต๊ะว่าง */
     open_order: { id: string; order_number: number; status: OrderStatus; total_satang: number; created_at: string | null } | null;
 }
+
+/** ราคา/การขายเฉพาะสาขา — สินค้าที่ไม่มีรายการนี้ใช้ราคาตั้งต้นของสินค้า */
+export interface StorePrice {
+    product_id: string;
+    price_satang: number;
+    is_available: boolean;
+}

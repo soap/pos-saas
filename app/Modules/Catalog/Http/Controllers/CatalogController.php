@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CatalogController extends Controller
 {
@@ -120,6 +121,37 @@ class CatalogController extends Controller
         return response()->json(['data' => ['product_id' => $product->id, 'store_id' => $store->id] + $data]);
     }
 
+    /** GET /store-prices — ราคา/การขายเฉพาะสาขาที่ตั้งไว้ (สินค้าที่ไม่อยู่ในรายการใช้ราคาตั้งต้น) */
+    public function storePrices(): JsonResponse
+    {
+        $store = $this->ctx->store();
+        $rows = DB::table('store_products')
+            ->where('tenant_id', $store->tenant_id)->where('store_id', $store->id)
+            ->get(['product_id', 'price_satang', 'is_available'])
+            ->map(fn ($r) => [
+                'product_id' => $r->product_id,
+                'price_satang' => (int) $r->price_satang,
+                'is_available' => (bool) $r->is_available,
+            ]);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /** DELETE /products/{id}/store-price — กลับไปใช้ราคาตั้งต้นและขายตามสถานะสินค้า */
+    public function clearStorePrice(string $id): JsonResponse
+    {
+        $product = Product::query()->findOrFail($id);
+        $store = $this->ctx->store();
+        $deleted = DB::table('store_products')
+            ->where('tenant_id', $store->tenant_id)->where('store_id', $store->id)->where('product_id', $product->id)
+            ->delete();
+        if ($deleted > 0) {
+            $this->audit->log('catalog.store_price_cleared', $product, ['store_id' => $store->id]);
+        }
+
+        return response()->json(['removed' => $deleted]);
+    }
+
     /** GET /menu — เมนูของสาขาสำหรับหน้าจอ POS (ราคาสาขา + modifiers) */
     public function menu(): JsonResponse
     {
@@ -156,6 +188,44 @@ class CatalogController extends Controller
         $this->audit->log('catalog.modifier_group_created', $group, $data);
 
         return response()->json(['data' => $group->load('options')], 201);
+    }
+
+    /** PATCH /modifier-groups/{id} — ตรวจ min/max กับค่าหลังแก้ (ส่งมาบางช่องได้); ออเดอร์เดิมเก็บ snapshot ไว้แล้ว */
+    public function updateModifierGroup(Request $request, string $id): JsonResponse
+    {
+        $group = ModifierGroup::query()->findOrFail($id);
+        $data = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'min_select' => ['sometimes', 'integer', 'min:0'],
+            'max_select' => ['sometimes', 'integer', 'min:1'],
+            'is_required' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer'],
+        ]);
+        if (($data['max_select'] ?? $group->max_select) < ($data['min_select'] ?? $group->min_select)) {
+            throw ValidationException::withMessages(['max_select' => 'เลือกได้สูงสุดต้องไม่น้อยกว่าเลือกอย่างน้อย']);
+        }
+        $group->update($data);
+        $this->audit->log('catalog.modifier_group_updated', $group, $data);
+
+        return response()->json(['data' => $group->load('options')]);
+    }
+
+    /** POST /modifier-groups/{id}/options — เพิ่มตัวเลือกต่อท้ายกลุ่ม */
+    public function addModifierOption(Request $request, string $id): JsonResponse
+    {
+        $group = ModifierGroup::query()->findOrFail($id);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'price_delta_satang' => ['required', 'integer'],
+        ]);
+        $option = ModifierOption::create($data + [
+            'modifier_group_id' => $group->id,
+            'tenant_id' => $group->tenant_id,
+            'sort_order' => (int) $group->options()->max('sort_order') + 1,
+        ]);
+        $this->audit->log('catalog.modifier_option_created', $option, $data);
+
+        return response()->json(['data' => $option], 201);
     }
 
     public function updateModifierOption(Request $request, string $id): JsonResponse

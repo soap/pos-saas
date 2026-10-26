@@ -35,9 +35,12 @@ $tenantRoutes = function () {
     Route::get('context', [TenantController::class, 'context'])->middleware('store:optional');
     Route::get('stores', [TenantController::class, 'stores'])->middleware('perm:stores.view');
     Route::post('stores', [TenantController::class, 'createStore'])->middleware('perm:stores.manage');
+    // store:optional → รู้ว่าสาขาไหนกำลังใช้งาน (กันปิดสาขาตัวเอง)
+    Route::patch('stores/{id}', [TenantController::class, 'updateStore'])->middleware(['store:optional', 'perm:stores.manage']);
 
     Route::get('members', [TenantController::class, 'members'])->middleware('perm:members.manage');
     Route::post('members', [TenantController::class, 'addMember'])->middleware('perm:members.manage');
+    Route::patch('members/{id}', [TenantController::class, 'updateMember'])->middleware('perm:members.manage');
     Route::delete('members/{id}/roles/{role}', [TenantController::class, 'removeRole'])->middleware('perm:members.manage');
 
     // บัญชีรับชำระ QR (ระดับ tenant)
@@ -55,12 +58,16 @@ $tenantRoutes = function () {
     Route::patch('products/{id}', [CatalogController::class, 'updateProduct'])->middleware('perm:catalog.manage');
     Route::get('modifier-groups', [CatalogController::class, 'modifierGroups'])->middleware('perm:catalog.view');
     Route::post('modifier-groups', [CatalogController::class, 'createModifierGroup'])->middleware('perm:catalog.manage');
+    Route::patch('modifier-groups/{id}', [CatalogController::class, 'updateModifierGroup'])->middleware('perm:catalog.manage');
+    Route::post('modifier-groups/{id}/options', [CatalogController::class, 'addModifierOption'])->middleware('perm:catalog.manage');
     Route::patch('modifier-options/{id}', [CatalogController::class, 'updateModifierOption'])->middleware('perm:catalog.manage');
 
     // ---------- Store-level ----------
     Route::middleware('store')->group(function () {
         Route::get('menu', [CatalogController::class, 'menu'])->middleware('perm:catalog.view');
+        Route::get('store-prices', [CatalogController::class, 'storePrices'])->middleware('perm:catalog.view');
         Route::put('products/{id}/store-price', [CatalogController::class, 'setStorePrice'])->middleware('perm:catalog.manage');
+        Route::delete('products/{id}/store-price', [CatalogController::class, 'clearStorePrice'])->middleware('perm:catalog.manage');
 
         // Orders
         Route::get('orders', [OrderController::class, 'index'])->middleware('perm:orders.view');
