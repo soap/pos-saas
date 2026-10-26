@@ -2,6 +2,8 @@
 
 namespace App\Providers\Filament;
 
+use AdriaanZon\FilamentPasskeys\FilamentPasskeysPlugin;
+use AdriaanZon\FilamentPasskeys\PasskeyAuthentication;
 use App\Modules\Tenancy\Http\Middleware\UsePlatformScope;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Http\Middleware\Authenticate;
@@ -22,7 +24,8 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 /**
  * Platform admin panel (/admin) — ทั้ง panel ทำงานข้าม tenant ผ่าน UsePlatformScope
- * และบังคับ MFA (authenticator app) เพราะเห็นข้อมูลทุก tenant
+ * และบังคับ MFA (passkey หรือ authenticator app) เพราะเห็นข้อมูลทุก tenant
+ * login ด้วย passkey แบบ passwordless ได้ (passkey บังคับ user verification จึงนับเป็น MFA ในตัว)
  */
 class AdminPanelProvider extends PanelProvider
 {
@@ -35,10 +38,14 @@ class AdminPanelProvider extends PanelProvider
             ->login()
             ->profile()
             ->multiFactorAuthentication([
+                PasskeyAuthentication::make(),
                 AppAuthentication::make()
                     ->recoverable()
                     ->brandName('POS SaaS Admin'),
             ], isRequired: true)
+            ->plugins([
+                FilamentPasskeysPlugin::make()->passwordlessLogin(),
+            ])
             ->brandName('POS SaaS Admin')
             ->colors([
                 'primary' => Color::Amber,

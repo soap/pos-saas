@@ -7,6 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "adriaanzon/filament-passkeys": "^0.3.1",
         "akaunting/laravel-money": "^6.0",
         "filament/filament": "^5.11",
         "laravel/framework": "^12.0",

@@ -16,14 +16,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Passkeys\Contracts\PasskeyUser;
+use Laravel\Passkeys\PasskeyAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
- * MFA (app_authentication_*) บังคับเฉพาะ platform admin panel — API ที่ใช้ Sanctum ไม่ผ่าน challenge นี้
+ * MFA (app_authentication_*, passkeys) บังคับเฉพาะ platform admin panel — API ที่ใช้ Sanctum ไม่ผ่าน challenge นี้
  */
-class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery
+class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, PasskeyUser
 {
-    use HasApiTokens, HasFactory, HasUuids, InteractsWithAppAuthentication, InteractsWithAppAuthenticationRecovery, Notifiable;
+    use HasApiTokens, HasFactory, HasUuids, InteractsWithAppAuthentication, InteractsWithAppAuthenticationRecovery, Notifiable, PasskeyAuthenticatable;
 
     protected $fillable = ['name', 'email', 'password', 'status'];
 

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Modules\Identity\Models\User;
 use App\Modules\Payments\Services\PaymentProviderRegistry;
 use App\Modules\Tenancy\Models\Tenant;
 use App\Support\Tenancy\TenantContext;
@@ -10,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Passkeys\Passkeys;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -18,6 +20,11 @@ class AppServiceProvider extends ServiceProvider
         // scoped = 1 instance ต่อ request/job (reset อัตโนมัติใน Octane/queue)
         $this->app->scoped(TenantContext::class);
         $this->app->singleton(PaymentProviderRegistry::class);
+
+        // passkey ใช้เฉพาะ platform admin panel — route ถูกลงทะเบียนโดย Filament plugin ภายใต้ /admin
+        // route กลางของ laravel/passkeys (/passkeys/login ฯลฯ) จึงปิดไว้ ไม่ให้มีทาง login นอก panel
+        Passkeys::ignoreRoutes();
+        Passkeys::useUserModel(User::class);
     }
 
     public function boot(): void

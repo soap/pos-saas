@@ -251,6 +251,45 @@ class AdminPanelTest extends TestCase
         $this->assertAuthenticatedAs($admin);
     }
 
+    public function test_platform_admin_with_only_a_passkey_satisfies_required_mfa(): void
+    {
+        $admin = $this->platformAdmin(withMfa: false);
+        $this->addPasskey($admin);
+
+        $this->actingAs($admin)->get('/admin/tenants')->assertOk();
+    }
+
+    public function test_login_with_password_requires_passkey_challenge_for_admin_with_passkey(): void
+    {
+        $this->addPasskey($this->platformAdmin(withMfa: false));
+
+        $login = Livewire::test(Login::class)
+            ->fillForm(['email' => 'admin@test.local', 'password' => 'password123'])
+            ->call('authenticate')
+            ->assertNoRedirect();
+
+        $this->assertNotNull($login->get('userUndertakingMultiFactorAuthentication'));
+        $this->assertGuest();
+    }
+
+    public function test_login_page_offers_passwordless_passkey_sign_in(): void
+    {
+        $this->get('/admin/login')
+            ->assertOk()
+            ->assertSee('fi-passkeys-login-button');
+    }
+
+    public function test_generic_passkey_routes_outside_the_panel_return_404(): void
+    {
+        $this->getJson('/passkeys/login/options')->assertNotFound();
+        $this->postJson('/passkeys/login')->assertNotFound();
+    }
+
+    private function addPasskey(User $user): void
+    {
+        $user->passkeys()->create(['name' => 'Test key', 'credential_id' => 'test-credential', 'credential' => ['test' => true]]);
+    }
+
     /** admin ตั้ง MFA แล้วเป็นค่าเริ่มต้น เพราะ panel บังคับ MFA ก่อนเข้าหน้าอื่น */
     private function platformAdmin(bool $withMfa = true): User
     {
