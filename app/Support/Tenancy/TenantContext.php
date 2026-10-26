@@ -31,6 +31,9 @@ class TenantContext
     /** > 0 = อยู่ใน withoutTenancy() — global scope ไม่กรองและไม่ throw */
     private int $unscopedDepth = 0;
 
+    /** true = ทั้ง request เป็นงานของ platform admin (ล้างโดย reset() ตอนเริ่ม request ถัดไป) */
+    private bool $platformScope = false;
+
     public function reset(): void
     {
         $this->tenant = null;
@@ -39,6 +42,17 @@ class TenantContext
         $this->user = null;
         $this->permissions = null;
         $this->unscopedDepth = 0;
+        $this->platformScope = false;
+    }
+
+    /**
+     * เปิดโหมดข้าม tenant ไปจนจบ request — สำหรับ platform admin panel (Filament)
+     * ใช้แทน withoutTenancy() เมื่อครอบ callback ไม่ได้ เช่น Livewire persistent middleware
+     * ที่รัน middleware เสร็จก่อน component จะทำงาน
+     */
+    public function enterPlatformScope(): void
+    {
+        $this->platformScope = true;
     }
 
     /**
@@ -62,7 +76,7 @@ class TenantContext
 
     public function isUnscoped(): bool
     {
-        return $this->unscopedDepth > 0;
+        return $this->platformScope || $this->unscopedDepth > 0;
     }
 
     /**

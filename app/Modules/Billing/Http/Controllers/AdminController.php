@@ -3,22 +3,19 @@
 namespace App\Modules\Billing\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Modules\Audit\Services\AuditLogger;
 use App\Modules\Billing\Models\Plan;
-use App\Modules\Billing\Models\Subscription;
-use App\Modules\Billing\Services\SubscriptionGate;
+use App\Modules\Billing\Services\BillingAdmin;
 use App\Modules\Tenancy\Models\Tenant;
 use App\Modules\Tenancy\Services\TenantProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 /**
  * SaaS Admin (platform admin เท่านั้น) — spec §7.2
  */
 class AdminController extends Controller
 {
-    public function __construct(private AuditLogger $audit, private SubscriptionGate $gate) {}
+    public function __construct(private BillingAdmin $billing) {}
 
     public function plans(): JsonResponse
     {
@@ -35,10 +32,8 @@ class AdminController extends Controller
             'limits' => ['nullable', 'array'],
             'limits.*' => ['integer', 'min:0'],
         ]);
-        $plan = Plan::create($data + ['limits' => $data['limits'] ?? [], 'is_active' => true]);
-        $this->audit->log('admin.plan_created', $plan, $data);
 
-        return response()->json(['data' => $plan], 201);
+        return response()->json(['data' => $this->billing->createPlan($data)], 201);
     }
 
     public function tenants(): JsonResponse
@@ -76,20 +71,7 @@ class AdminController extends Controller
             'ends_at' => ['nullable', 'date'],
             'trial_ends_at' => ['nullable', 'date'],
         ]);
-        $sub = DB::transaction(function () use ($data) {
-            Subscription::query()->withoutGlobalScopes()->where('tenant_id', $data['tenant_id'])
-                ->where('status', '<>', 'cancelled')->lockForUpdate()->update(['status' => 'cancelled', 'ends_at' => now(), 'updated_at' => now()]);
-
-            return Subscription::create([
-                'tenant_id' => $data['tenant_id'],
-                'plan_id' => Plan::query()->where('code', $data['plan_code'])->value('id'),
-                'status' => $data['status'],
-                'starts_at' => now(),
-                'ends_at' => $data['ends_at'] ?? null,
-                'trial_ends_at' => $data['trial_ends_at'] ?? null,
-            ]);
-        });
-        $this->audit->log('admin.subscription_changed', $sub, $data, tenantId: $data['tenant_id']);
+        $sub = $this->billing->changeSubscription($data);
 
         return response()->json(['data' => $sub->load('plan')], 201);
     }
@@ -97,18 +79,7 @@ class AdminController extends Controller
     public function usage(string $tenantId): JsonResponse
     {
         $tenant = Tenant::query()->findOrFail($tenantId);
-        $since = now()->subDays(30);
 
-        return response()->json(['data' => [
-            'tenant_id' => $tenant->id,
-            'subscription' => $this->gate->current($tenant),
-            'stores' => DB::table('stores')->where('tenant_id', $tenant->id)->count(),
-            'members' => DB::table('tenant_memberships')->where('tenant_id', $tenant->id)->where('status', 'active')->count(),
-            'orders_30d' => DB::table('orders')->where('tenant_id', $tenant->id)->where('created_at', '>=', $since)->count(),
-            'limits' => [
-                'max_stores' => $this->gate->limit($tenant, 'max_stores'),
-                'max_users' => $this->gate->limit($tenant, 'max_users'),
-            ],
-        ]]);
+        return response()->json(['data' => $this->billing->usage($tenant)]);
     }
 }

@@ -2,9 +2,11 @@
 
 namespace App\Modules\Tenancy\Models;
 
+use App\Modules\Billing\Models\Subscription;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Validation\Rule;
 
 class Tenant extends Model
@@ -28,5 +30,11 @@ class Tenant extends Model
     public function stores(): HasMany
     {
         return $this->hasMany(Store::class);
+    }
+
+    /** subscription ที่ยังไม่ถูกยกเลิก (มีได้ครั้งละหนึ่งอัน) — ใช้ในโหมดข้าม tenant เท่านั้น */
+    public function currentSubscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class)->where('status', '<>', 'cancelled')->latest('starts_at');
     }
 }

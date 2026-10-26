@@ -4,6 +4,8 @@ namespace App\Modules\Identity\Models;
 
 use App\Modules\Tenancy\Models\TenantMembership;
 use Database\Factories\UserFactory;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +14,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
     use HasApiTokens, HasFactory, HasUuids, Notifiable;
 
@@ -33,6 +35,12 @@ class User extends Authenticatable
     protected function email(): Attribute
     {
         return Attribute::make(set: fn (string $value) => mb_strtolower(trim($value)));
+    }
+
+    /** panel /admin สำหรับ platform admin ที่ยัง active เท่านั้น */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->is_platform_admin && $this->status === 'active';
     }
 
     public function tenantMemberships(): HasMany
