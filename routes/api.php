@@ -1,6 +1,5 @@
 <?php
 
-use App\Modules\Billing\Http\Controllers\AdminController;
 use App\Modules\Cashier\Http\Controllers\CashierController;
 use App\Modules\Catalog\Http\Controllers\CatalogController;
 use App\Modules\Devices\Http\Controllers\DeviceController;
@@ -150,14 +149,8 @@ Route::prefix('v1')->group(function () use ($tenantRoutes) {
         Route::get('tenants', [TenantController::class, 'index']);
 
         // ---------- SaaS Admin ----------
-        Route::prefix('admin')->middleware('platform.admin')->group(function () {
-            Route::get('plans', [AdminController::class, 'plans']);
-            Route::post('plans', [AdminController::class, 'createPlan']);
-            Route::get('tenants', [AdminController::class, 'tenants']);
-            Route::post('tenants', [AdminController::class, 'createTenant']);
-            Route::post('subscriptions', [AdminController::class, 'subscribe']);
-            Route::get('tenants/{id}/usage', [AdminController::class, 'usage']);
-        });
+        // ปิดไว้: ใช้ Filament panel (/admin, บังคับ MFA) แทน — ดูเหตุผลใน routes/api-admin.php
+        // require __DIR__.'/api-admin.php';
 
         // ---------- Tenant-level ----------
         Route::prefix('t/{tenant}')->middleware('tenant')->group($tenantRoutes);

@@ -5,13 +5,14 @@ namespace Tests\Feature;
 use App\Modules\Identity\Models\User;
 use Illuminate\Database\QueryException;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\MountsAdminApiRoutes;
 use Tests\Support\PosWorld;
 use Tests\TestCase;
 
 /** การระบุ tenant ผ่าน path / subdomain / header (TenantResolver) */
 class TenantIdentificationTest extends TestCase
 {
-    use PosWorld;
+    use MountsAdminApiRoutes, PosWorld;
 
     protected function setUp(): void
     {
@@ -87,6 +88,7 @@ class TenantIdentificationTest extends TestCase
 
     public function test_tenant_slug_must_be_a_valid_dns_label(): void
     {
+        $this->mountAdminApiRoutes();
         $admin = User::create(['name' => 'admin', 'email' => 'admin@test.local', 'password' => 'password123', 'status' => 'active']);
         $admin->forceFill(['is_platform_admin' => true])->save();
         Sanctum::actingAs($admin);

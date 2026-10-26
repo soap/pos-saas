@@ -6,15 +6,17 @@ use App\Modules\Billing\Models\Plan;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Identity\Models\User;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\MountsAdminApiRoutes;
 use Tests\Support\PosWorld;
 use Tests\TestCase;
 
 /**
- * SaaS Admin API (/api/v1/admin) — endpoint ที่ใช้ BillingAdmin ร่วมกับ Filament panel
+ * SaaS Admin API (/api/v1/admin) — routes/api-admin.php ปิดไว้ (token จาก API login ข้าม MFA ได้)
+ * test ของ endpoint mount ไฟล์เองเพื่อให้เปิดกลับมาได้โดยไม่พัง
  */
 class AdminApiTest extends TestCase
 {
-    use PosWorld;
+    use MountsAdminApiRoutes, PosWorld;
 
     protected function setUp(): void
     {
@@ -22,8 +24,17 @@ class AdminApiTest extends TestCase
         $this->setUpWorld();
     }
 
+    public function test_admin_api_returns_404_because_it_is_not_loaded(): void
+    {
+        Sanctum::actingAs($this->platformAdmin());
+
+        $this->getJson('/api/v1/admin/tenants')->assertNotFound();
+        $this->postJson('/api/v1/admin/plans', ['code' => 'x'])->assertNotFound();
+    }
+
     public function test_create_plan_returns_201_and_defaults_to_active_with_empty_limits(): void
     {
+        $this->mountAdminApiRoutes();
         Sanctum::actingAs($this->platformAdmin());
 
         $this->postJson('/api/v1/admin/plans', [
@@ -37,6 +48,7 @@ class AdminApiTest extends TestCase
 
     public function test_subscribe_returns_201_and_cancels_previous_subscription(): void
     {
+        $this->mountAdminApiRoutes();
         Plan::create(['code' => 'basic', 'name' => 'Basic', 'price_satang' => 29900, 'billing_interval' => 'month', 'limits' => [], 'is_active' => true]);
         Sanctum::actingAs($this->platformAdmin());
 

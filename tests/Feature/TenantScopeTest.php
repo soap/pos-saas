@@ -14,13 +14,14 @@ use App\Support\Tenancy\TenantContextMissing;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\MountsAdminApiRoutes;
 use Tests\Support\PosWorld;
 use Tests\TestCase;
 
 /** fail-closed tenant scope + ไล่ทุก endpoint ว่า tenant A แตะข้อมูล tenant B ไม่ได้ */
 class TenantScopeTest extends TestCase
 {
-    use PosWorld;
+    use MountsAdminApiRoutes, PosWorld;
 
     protected function setUp(): void
     {
@@ -103,6 +104,7 @@ class TenantScopeTest extends TestCase
 
     public function test_platform_admin_routes_work_across_tenants(): void
     {
+        $this->mountAdminApiRoutes();
         $admin = User::create(['name' => 'admin', 'email' => 'admin@test.local', 'password' => 'password123', 'status' => 'active']);
         $admin->forceFill(['is_platform_admin' => true])->save();
         Sanctum::actingAs($admin);
