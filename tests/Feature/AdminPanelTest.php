@@ -14,6 +14,8 @@ use App\Modules\Tenancy\Models\Store;
 use App\Modules\Tenancy\Models\Tenant;
 use App\Support\Tenancy\TenantContext;
 use Filament\Actions\CreateAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\Testing\TestAction;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Auth\Pages\Login;
 use Livewire\Livewire;
@@ -178,7 +180,7 @@ class AdminPanelTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'admin.tenant_updated', 'tenant_id' => $this->tenantB->id]);
     }
 
-    public function test_create_plan_action_stores_integer_limits_and_audits(): void
+    public function test_create_plan_action_stores_baht_price_as_satang_with_integer_limits_and_audits(): void
     {
         $this->actAsPlatformAdmin();
 
@@ -186,7 +188,7 @@ class AdminPanelTest extends TestCase
             ->callAction(CreateAction::class, [
                 'code' => 'max',
                 'name' => 'Max',
-                'price_satang' => 99900,
+                'price_satang' => '19.99',
                 'billing_interval' => 'year',
                 'limits' => ['max_stores' => '10'],
                 'is_active' => true,
@@ -194,9 +196,42 @@ class AdminPanelTest extends TestCase
             ->assertHasNoFormErrors();
 
         $plan = Plan::query()->where('code', 'max')->firstOrFail();
+        $this->assertSame(1999, $plan->price_satang);
         $this->assertSame(['max_stores' => 10], $plan->limits);
         $this->assertSame('year', $plan->billing_interval);
         $this->assertDatabaseHas('audit_logs', ['action' => 'admin.plan_created', 'subject_id' => $plan->id]);
+    }
+
+    public function test_edit_plan_action_shows_price_in_baht_and_saves_satang(): void
+    {
+        $this->actAsPlatformAdmin();
+        $plan = Plan::query()->where('code', 'pro')->firstOrFail();
+        $plan->update(['price_satang' => 59900]);
+
+        Livewire::test(ManagePlans::class)
+            ->mountAction(TestAction::make(EditAction::class)->table($plan))
+            ->assertSchemaStateSet(['price_satang' => '599.00'])
+            ->fillForm(['price_satang' => '649.50'])
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+
+        $this->assertSame(64950, $plan->fresh()->price_satang);
+    }
+
+    public function test_create_plan_action_rejects_price_with_more_than_two_decimals(): void
+    {
+        $this->actAsPlatformAdmin();
+
+        Livewire::test(ManagePlans::class)
+            ->callAction(CreateAction::class, [
+                'code' => 'odd',
+                'name' => 'Odd',
+                'price_satang' => '10.005',
+                'billing_interval' => 'month',
+            ])
+            ->assertHasFormErrors(['price_satang' => 'decimal']);
+
+        $this->assertDatabaseMissing('plans', ['code' => 'odd']);
     }
 
     public function test_create_plan_action_rejects_negative_limit(): void

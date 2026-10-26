@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Plans;
 
 use App\Filament\Resources\Plans\Pages\ManagePlans;
 use App\Modules\Billing\Models\Plan;
+use App\Support\Money\Satang;
 use BackedEnum;
 use Closure;
 use Filament\Actions\EditAction;
@@ -12,6 +13,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\StateCasts\KeyValueStateCast;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -48,11 +50,17 @@ class PlanResource extends Resource
                     ->label('ชื่อ')
                     ->required()
                     ->maxLength(255),
+                // กรอกเป็นบาท เก็บเป็นสตางค์ (BIGINT) — round() กันเศษ float เช่น 19.99 * 100 = 1998.999…
                 TextInput::make('price_satang')
-                    ->label('ราคา (สตางค์)')
+                    ->label('ราคา')
+                    ->prefix('฿')
                     ->required()
-                    ->integer()
-                    ->minValue(0),
+                    ->numeric()
+                    ->step(0.01)
+                    ->minValue(0)
+                    ->rule('decimal:0,2')
+                    ->formatStateUsing(fn (?int $state): ?string => $state === null ? null : number_format($state / 100, 2, '.', ''))
+                    ->dehydrateStateUsing(fn (string|int|float $state): int => (int) round(((float) $state) * 100)),
                 Select::make('billing_interval')
                     ->label('รอบบิล')
                     ->options(['month' => 'รายเดือน', 'year' => 'รายปี'])
@@ -61,8 +69,9 @@ class PlanResource extends Resource
                     ->label('ขีดจำกัด')
                     ->keyLabel('key เช่น max_stores')
                     ->valueLabel('จำนวน')
+                    // validation ได้ state ดิบของ KeyValue (แถว {key, value}) ก่อน cast → แปลงเป็น key => value ก่อนตรวจ
                     ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
-                        foreach ((array) $value as $key => $limit) {
+                        foreach (app(KeyValueStateCast::class)->get($value) as $key => $limit) {
                             if (filter_var($limit, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) === false) {
                                 $fail("ค่าของ {$key} ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป");
                             }
@@ -90,7 +99,7 @@ class PlanResource extends Resource
                     ->searchable(),
                 TextColumn::make('price_satang')
                     ->label('ราคา')
-                    ->money('THB', divideBy: 100)
+                    ->formatStateUsing(fn (int $state): string => Satang::money($state)->format())
                     ->sortable(),
                 TextColumn::make('billing_interval')
                     ->label('รอบบิล'),
