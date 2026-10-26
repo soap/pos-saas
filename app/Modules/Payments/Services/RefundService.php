@@ -23,6 +23,7 @@ use Throwable;
  *   cash: ทำจบใน transaction เดียว (ไม่มี I/O ภายนอก)
  *   qr:   1) lock → สร้าง refund pending (จองยอด)  2) เรียก provider นอก lock
  *         3) lock → succeeded หรือ failed (refund ที่ล้มเหลวถูกเก็บไว้เป็นหลักฐาน — spec §2.1)
+ *   manual_transfer: provider ไม่มี refund API (Omise PromptPay, EasySlip) → ร้านโอนคืนเองแล้วบันทึกใน transaction เดียว
  */
 class RefundService
 {
@@ -33,20 +34,37 @@ class RefundService
         private AuditLogger $audit,
     ) {}
 
-    public function refund(Payment $payment, int $amount, string $reason, string $actorId): Refund
+    /**
+     * @param  ?string  $refundMethod  manual_transfer = ร้านโอนคืนลูกค้าเองแล้ว (provider ที่ไม่มี refund API เช่น Omise PromptPay, EasySlip)
+     */
+    public function refund(Payment $payment, int $amount, string $reason, string $actorId, ?string $refundMethod = null, ?string $transferReference = null): Refund
     {
         if ($payment->method === 'cash') {
             return DB::transaction(function () use ($payment, $amount, $reason, $actorId) {
                 [$order, $payment] = $this->lockForRefund($payment, $amount);
-                $refund = $this->createPending($payment, $amount, $reason, $actorId);
+                $refund = $this->createPending($payment, $amount, $reason, $actorId, 'cash');
                 $shift = $this->cashier->lockOpenShift($payment->store_id);
                 $this->cashier->recordMovement($shift, 'refund', $amount, $reason, $actorId, 'refund', $refund->id);
 
                 return $this->complete($order, $payment, $refund, null, $actorId);
             });
         }
+        if ($refundMethod === 'manual_transfer') {
+            return $this->recordManualTransfer($payment, $amount, $reason, $actorId, $transferReference);
+        }
 
         return $this->refundViaProvider($payment, $amount, $reason, $actorId);
+    }
+
+    /** บันทึกการโอนคืนที่ร้านทำเองนอกระบบ — lock และตรวจยอดเหมือน refund อื่น (spec ภาคผนวก B7) */
+    private function recordManualTransfer(Payment $payment, int $amount, string $reason, string $actorId, ?string $transferReference): Refund
+    {
+        return DB::transaction(function () use ($payment, $amount, $reason, $actorId, $transferReference) {
+            [$order, $payment] = $this->lockForRefund($payment, $amount);
+            $refund = $this->createPending($payment, $amount, $reason, $actorId, 'manual_transfer');
+
+            return $this->complete($order, $payment, $refund, $transferReference, $actorId);
+        });
     }
 
     private function refundViaProvider(Payment $payment, int $amount, string $reason, string $actorId): Refund
@@ -55,12 +73,12 @@ class RefundService
         [$refund, $attempt, $provider] = DB::transaction(function () use ($payment, $amount, $reason, $actorId) {
             [, $payment] = $this->lockForRefund($payment, $amount);
             $attempt = $payment->attempts()->whereNotNull('provider_reference')->latest('attempt_number')->firstOrFail();
-            $provider = $this->providers->get($attempt->provider_code);
+            $provider = $this->providers->forAttempt($attempt);
             if (! $provider instanceof SupportsRefunds) {
-                throw ApiException::unprocessable('refund_not_supported', 'provider ไม่รองรับการคืนเงินอัตโนมัติ');
+                throw ApiException::unprocessable('manual_refund_required', 'ช่องทางนี้คืนเงินอัตโนมัติไม่ได้ ให้โอนคืนลูกค้าเองแล้วบันทึกด้วย refund_method=manual_transfer');
             }
 
-            return [$this->createPending($payment, $amount, $reason, $actorId), $attempt, $provider];
+            return [$this->createPending($payment, $amount, $reason, $actorId, 'provider'), $attempt, $provider];
         });
 
         // 2) เรียก provider นอก transaction (I/O ภายนอกไม่อยู่ใน lock)
@@ -115,7 +133,7 @@ class RefundService
         return $this->orders->lock(Order::query()->findOrFail($orderId));
     }
 
-    private function createPending(Payment $payment, int $amount, string $reason, string $actorId): Refund
+    private function createPending(Payment $payment, int $amount, string $reason, string $actorId, string $method): Refund
     {
         return Refund::create([
             'tenant_id' => $payment->tenant_id,
@@ -124,6 +142,7 @@ class RefundService
             'amount_satang' => $amount,
             'status' => 'pending',
             'reason' => $reason,
+            'method' => $method,
             'created_by' => $actorId,
         ]);
     }
@@ -142,6 +161,7 @@ class RefundService
         ]);
         $this->audit->log('payment.refunded', $refund, [
             'payment_id' => $payment->id, 'order_id' => $order->id, 'amount_satang' => $refund->amount_satang, 'reason' => $refund->reason,
+            'method' => $refund->method, 'provider_reference' => $providerRef,
         ]);
         Outbox::record($payment->tenant_id, 'payment', $payment->id, 'payment.refunded', ['refund_id' => $refund->id]);
         // คืนยอดที่จ่ายเกิน (เช่น หลังยกเลิก ticket ครัว) แล้วออเดอร์อาจปิดได้

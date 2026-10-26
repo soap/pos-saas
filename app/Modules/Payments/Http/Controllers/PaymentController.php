@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Ordering\Models\Order;
 use App\Modules\Payments\Http\Requests\RefundRequest;
 use App\Modules\Payments\Http\Requests\StartPaymentRequest;
+use App\Modules\Payments\Http\Requests\SubmitSlipRequest;
 use App\Modules\Payments\Http\Resources\PaymentResource;
 use App\Modules\Payments\Models\Payment;
 use App\Modules\Payments\Services\PaymentService;
@@ -44,7 +45,15 @@ class PaymentController extends Controller
             $payment = $this->payments->refresh($payment);
         }
 
-        return new PaymentResource($payment->load('refunds'));
+        return new PaymentResource($payment->load(['refunds', 'attempts']));
+    }
+
+    /** POST /payments/{id}/slip — easyslip: ส่ง QR บนสลิปให้ตรวจ ผลมาทาง webhook แล้ว poll GET /payments/{id} */
+    public function submitSlip(SubmitSlipRequest $request, string $id): JsonResponse
+    {
+        $payment = $this->payments->submitSlip(Payment::query()->findOrFail($id), $request->validated('slip_payload'), $request->user()->id);
+
+        return (new PaymentResource($payment->load('attempts')))->response()->setStatusCode(202);
     }
 
     public function cancel(Request $request, string $id): PaymentResource
@@ -56,7 +65,10 @@ class PaymentController extends Controller
     public function refund(RefundRequest $request, string $id, RefundService $refunds): JsonResponse
     {
         $data = $request->validated();
-        $refund = $refunds->refund(Payment::query()->findOrFail($id), $data['amount_satang'], $data['reason'], $request->user()->id);
+        $refund = $refunds->refund(
+            Payment::query()->findOrFail($id), $data['amount_satang'], $data['reason'], $request->user()->id,
+            $data['refund_method'] ?? null, $data['transfer_reference'] ?? null,
+        );
 
         return response()->json([
             'data' => [
@@ -64,6 +76,7 @@ class PaymentController extends Controller
                 'payment_id' => $refund->payment_id,
                 'amount_satang' => $refund->amount_satang,
                 'status' => $refund->status,
+                'method' => $refund->method,
                 'reason' => $refund->reason,
                 'succeeded_at' => $refund->succeeded_at?->toAtomString(),
             ],
@@ -71,10 +84,10 @@ class PaymentController extends Controller
         ], 201);
     }
 
-    /** POST /webhooks/payments/{provider} — ไม่ต้อง login; ตรวจ signature จาก raw body */
-    public function webhook(Request $request, string $provider, WebhookService $webhooks): JsonResponse
+    /** POST /webhooks/payments/{provider}/{account?} — ไม่ต้อง login; ตรวจ signature จาก raw body ด้วย secret ของ account */
+    public function webhook(Request $request, WebhookService $webhooks, string $provider, ?string $account = null): JsonResponse
     {
-        $result = $webhooks->handle($provider, $request->headers->all(), $request->getContent());
+        $result = $webhooks->handle($provider, $request->headers->all(), $request->getContent(), $account);
 
         return response()->json(['result' => $result]);
     }

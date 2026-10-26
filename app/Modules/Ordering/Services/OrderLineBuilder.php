@@ -65,8 +65,8 @@ class OrderLineBuilder
             throw ApiException::unprocessable('line_negative', 'ราคาต่อหน่วยหลังรวมตัวเลือกติดลบไม่ได้');
         }
 
-        $taxPerLine = Satang::zero(); // MVP: ร้านไม่จด VAT (config pos.tax_mode = none)
-        $lineTotal = $perUnit->multiply($qty)->add($taxPerLine);
+        // ราคารวม VAT แล้ว (spec ภาคผนวก B2) → VAT คิดระดับบิลหลังหักส่วนลดใน OrderService::recalculate
+        $lineTotal = $perUnit->multiply($qty);
 
         return [
             'item' => [
@@ -77,7 +77,7 @@ class OrderLineBuilder
                 'modifiers_total_satang' => Satang::of($modifiersTotal),
                 'quantity' => $qty,
                 'discount_satang' => 0,
-                'tax_satang' => Satang::of($taxPerLine),
+                'tax_satang' => 0,
                 'line_total_satang' => Satang::of($lineTotal),
                 'notes' => $intent['notes'] ?? null,
             ],

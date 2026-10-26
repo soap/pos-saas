@@ -87,6 +87,15 @@ class OrderController extends Controller
         return new OrderResource($this->loadFull($id));
     }
 
+    /** POST /orders/{id}/move-table — dining_table_id = null คือเลิกผูกโต๊ะ */
+    public function moveTable(Request $request, string $id): OrderResource
+    {
+        $data = $request->validate(['dining_table_id' => ['present', 'nullable', 'uuid']]);
+        $this->orders->moveTable(Order::query()->findOrFail($id), $data['dining_table_id'], $request->user()->id);
+
+        return new OrderResource($this->loadFull($id));
+    }
+
     public function events(string $id): JsonResponse
     {
         $order = Order::query()->findOrFail($id);

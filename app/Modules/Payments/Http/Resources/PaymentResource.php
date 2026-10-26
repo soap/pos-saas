@@ -28,9 +28,19 @@ class PaymentResource extends JsonResource
                 'id' => $r->id,
                 'amount_satang' => $r->amount_satang,
                 'status' => $r->status,
+                'method' => $r->method,
                 'reason' => $r->reason,
                 'succeeded_at' => $r->succeeded_at?->toAtomString(),
             ])->values()),
+            // easyslip: สถานะสลิปล่าสุดให้หน้าจอแคชเชียร์แสดง (rejection = ให้สแกนสลิปใหม่)
+            'slip' => $this->whenLoaded('attempts', function () {
+                $payload = $this->attempts->last()?->response_payload ?? [];
+
+                return isset($payload['slip_job_id']) || isset($payload['slip_rejection']) ? [
+                    'submitted_at' => $payload['slip_submitted_at'] ?? null,
+                    'rejection' => $payload['slip_rejection'] ?? null,
+                ] : null;
+            }),
         ];
     }
 }

@@ -54,7 +54,7 @@ class TenantController extends Controller
     public function stores(): JsonResponse
     {
         $ids = StoreMembership::query()->where('user_id', $this->ctx->user()->id)->where('status', 'active')->pluck('store_id');
-        $stores = Store::query()->whereIn('id', $ids)->orderBy('code')->get(['id', 'code', 'name', 'timezone', 'status', 'settings']);
+        $stores = Store::query()->whereIn('id', $ids)->orderBy('code')->get(['id', 'code', 'name', 'timezone', 'status', 'settings', 'qr_payment_account_id']);
 
         return response()->json(['data' => $stores]);
     }
@@ -69,6 +69,7 @@ class TenantController extends Controller
             'timezone' => ['nullable', 'timezone:all'],
             'settings' => ['nullable', 'array'],
             'settings.kitchen_enabled' => ['nullable', 'boolean'],
+            'settings.tax_mode' => ['nullable', Rule::in(Store::TAX_MODES)],
         ]);
 
         $store = DB::transaction(function () use ($tenant, $data) {

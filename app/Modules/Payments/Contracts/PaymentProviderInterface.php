@@ -6,6 +6,7 @@ use App\Modules\Payments\DTOs\PaymentRequest;
 use App\Modules\Payments\DTOs\PaymentResponse;
 use App\Modules\Payments\DTOs\ProviderPaymentStatus;
 use App\Modules\Payments\DTOs\VerifiedWebhook;
+use App\Modules\Payments\Models\PaymentAttempt;
 use App\Modules\Payments\Providers\InvalidWebhookException;
 
 /**
@@ -19,7 +20,7 @@ interface PaymentProviderInterface
 
     public function createPayment(PaymentRequest $request): PaymentResponse;
 
-    public function getPaymentStatus(string $providerReference): ProviderPaymentStatus;
+    public function getPaymentStatus(PaymentAttempt $attempt): ProviderPaymentStatus;
 
     /** @throws InvalidWebhookException */
     public function verifyWebhook(array $headers, string $rawBody): VerifiedWebhook;

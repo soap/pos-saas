@@ -24,6 +24,7 @@ class OrderResource extends JsonResource
             'business_date' => $this->business_date?->format('Y-m-d'),
             'order_number' => $this->order_number,
             'order_type' => $this->order_type,
+            'dining_table_id' => $this->dining_table_id,
             'table_label' => $this->table_label,
             'status' => $this->status,
             'subtotal_satang' => $this->subtotal_satang,

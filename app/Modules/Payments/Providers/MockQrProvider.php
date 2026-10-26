@@ -9,6 +9,7 @@ use App\Modules\Payments\DTOs\PaymentResponse;
 use App\Modules\Payments\DTOs\ProviderPaymentStatus;
 use App\Modules\Payments\DTOs\RefundResult;
 use App\Modules\Payments\DTOs\VerifiedWebhook;
+use App\Modules\Payments\Models\PaymentAttempt;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -41,11 +42,11 @@ class MockQrProvider implements PaymentProviderInterface, SupportsRefunds
         );
     }
 
-    public function getPaymentStatus(string $providerReference): ProviderPaymentStatus
+    public function getPaymentStatus(PaymentAttempt $attempt): ProviderPaymentStatus
     {
-        $state = Cache::get($this->key($providerReference));
+        $state = Cache::get($this->key($attempt->provider_reference));
 
-        return new ProviderPaymentStatus($state['status'] ?? 'pending', ['reference' => $providerReference]);
+        return new ProviderPaymentStatus($state['status'] ?? 'pending', ['reference' => $attempt->provider_reference]);
     }
 
     public function verifyWebhook(array $headers, string $rawBody): VerifiedWebhook

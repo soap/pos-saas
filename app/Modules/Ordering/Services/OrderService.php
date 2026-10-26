@@ -5,6 +5,7 @@ namespace App\Modules\Ordering\Services;
 use Akaunting\Money\Money;
 use App\Modules\Audit\Services\AuditLogger;
 use App\Modules\Kitchen\Models\KitchenTicket;
+use App\Modules\Ordering\Models\DiningTable;
 use App\Modules\Ordering\Models\Order;
 use App\Modules\Ordering\Models\OrderEvent;
 use App\Modules\Ordering\Models\OrderItem;
@@ -30,6 +31,11 @@ class OrderService
     public function create(Store $store, string $actorId, array $data): Order
     {
         return DB::transaction(function () use ($store, $actorId, $data) {
+            // ล็อกโต๊ะก่อนออกเลขออเดอร์ — 2 เครื่องเปิดโต๊ะเดียวกันพร้อมกัน เครื่องที่สองจะได้ table_occupied
+            $table = empty($data['dining_table_id']) ? null : $this->lockFreeTable($data['dining_table_id']);
+            if ($table && $data['order_type'] !== 'dine_in') {
+                throw ApiException::unprocessable('table_requires_dine_in', 'ผูกโต๊ะได้เฉพาะออเดอร์ทานที่ร้าน');
+            }
             $businessDate = $this->businessDate($store);
             $number = $this->nextOrderNumber($store, $businessDate);
 
@@ -39,7 +45,8 @@ class OrderService
                 'business_date' => $businessDate,
                 'order_number' => $number,
                 'order_type' => $data['order_type'],
-                'table_label' => $data['table_label'] ?? null,
+                'dining_table_id' => $table?->id,
+                'table_label' => $table?->name ?? $data['table_label'] ?? null,
                 'status' => 'draft',
                 'subtotal_satang' => 0,
                 'discount_satang' => 0,
@@ -250,6 +257,29 @@ class OrderService
             });
     }
 
+    /** ย้ายออเดอร์ไปโต๊ะอื่น (null = ไม่ผูกโต๊ะ) — ชื่อโต๊ะใน ticket ที่ส่งครัวไปแล้วไม่เปลี่ยน */
+    public function moveTable(Order $order, ?string $tableId, string $actorId): Order
+    {
+        return DB::transaction(function () use ($order, $tableId, $actorId) {
+            $order = $this->lock($order);
+            $this->ensureOpen($order);
+            if ($order->order_type !== 'dine_in') {
+                throw ApiException::unprocessable('table_requires_dine_in', 'ผูกโต๊ะได้เฉพาะออเดอร์ทานที่ร้าน');
+            }
+            if ($tableId === $order->dining_table_id) {
+                return $order;
+            }
+            $table = $tableId === null ? null : $this->lockFreeTable($tableId);
+            $from = ['dining_table_id' => $order->dining_table_id, 'table_label' => $order->table_label];
+            $to = ['dining_table_id' => $table?->id, 'table_label' => $table?->name];
+            $order->update($to);
+            $this->event($order, 'order.table_moved', null, null, $actorId, ['from' => $from, 'to' => $to]);
+            $this->audit->log('order.table_moved', $order, ['from' => $from['table_label'], 'to' => $to['table_label']]);
+
+            return $order;
+        });
+    }
+
     public function lock(Order $order): Order
     {
         return Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
@@ -321,19 +351,48 @@ class OrderService
     public function recalculate(Order $order): void
     {
         $sums = OrderItem::query()->where('order_id', $order->id)->where('status', 'active')
-            ->selectRaw('COALESCE(SUM(line_total_satang - tax_satang + discount_satang),0) AS gross, COALESCE(SUM(discount_satang),0) AS line_discount, COALESCE(SUM(tax_satang),0) AS tax')
+            ->selectRaw('COALESCE(SUM(line_total_satang - tax_satang + discount_satang),0) AS gross, COALESCE(SUM(discount_satang),0) AS line_discount')
             ->first();
 
         $subtotal = Satang::money((int) $sums->gross);
         $orderDiscount = Satang::min(Satang::money($order->discount_satang), $subtotal);
-        $tax = Satang::money((int) $sums->tax);
-        $total = $subtotal->subtract($orderDiscount)->subtract(Satang::money((int) $sums->line_discount))->add($tax);
+        $total = $subtotal->subtract($orderDiscount)->subtract(Satang::money((int) $sums->line_discount));
+        $tax = Satang::money($this->includedVat(Store::query()->findOrFail($order->store_id), Satang::of($total)));
 
         $order->subtotal_satang = Satang::of($subtotal);
         $order->discount_satang = Satang::of($orderDiscount);
         $order->tax_satang = Satang::of($tax);
         $order->total_satang = Satang::of($total);
         $order->save();
+    }
+
+    /**
+     * ส่วน VAT ที่รวมอยู่ในยอดขาย (ราคารวม VAT — spec ภาคผนวก B2): total × rate / (100 + rate) ปัดเป็นสตางค์ที่ใกล้สุด
+     * คิดครั้งเดียวจากยอดทั้งบิลหลังหักส่วนลด จึงไม่มีเศษปัดสะสมรายบรรทัด
+     */
+    private function includedVat(Store $store, int $totalSatang): int
+    {
+        if ($store->taxMode() !== 'inclusive') {
+            return 0;
+        }
+        $rate = (int) config('pos.vat_rate_percent');
+
+        return intdiv(2 * $totalSatang * $rate + (100 + $rate), 2 * (100 + $rate));
+    }
+
+    /** ล็อกโต๊ะ (ของสาขาปัจจุบันผ่าน global scope) แล้วตรวจว่าเปิดใช้และไม่มีออเดอร์ค้าง */
+    private function lockFreeTable(string $tableId): DiningTable
+    {
+        $table = DiningTable::query()->whereKey($tableId)->lockForUpdate()->first();
+        if (! $table || ! $table->is_active) {
+            throw ApiException::unprocessable('table_invalid', 'ไม่พบโต๊ะนี้หรือโต๊ะถูกปิดใช้งาน');
+        }
+        $occupiedBy = Order::query()->where('dining_table_id', $table->id)->whereIn('status', Order::OPEN_STATUSES)->first(['id', 'order_number']);
+        if ($occupiedBy) {
+            throw ApiException::conflict('table_occupied', "โต๊ะ {$table->name} มีออเดอร์ #{$occupiedBy->order_number} เปิดอยู่", ['order_id' => $occupiedBy->id]);
+        }
+
+        return $table;
     }
 
     private function ensureOpen(Order $order): void

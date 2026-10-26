@@ -10,7 +10,9 @@
         "akaunting/laravel-money": "^6.0",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.3",
-        "laravel/tinker": "^2.10.1"
+        "laravel/tinker": "^2.10.1",
+        "soap/laravel-omise": "^1.6",
+        "soap/laravel-omise-webhooks": "^2.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

@@ -1,10 +1,15 @@
 <?php
 
+use App\Modules\Payments\Providers\EasySlipProvider;
 use App\Modules\Payments\Providers\MockQrProvider;
+use App\Modules\Payments\Providers\OmiseProvider;
 
 return [
-    // ภาษี: ร้านนำร่องไม่จด VAT → tax_satang = 0 (โครงสร้าง tax_profile เผื่อไว้)
-    'tax_mode' => env('POS_TAX_MODE', 'none'), // none (MVP)
+    // ภาษี (spec ภาคผนวก B2): ค่าเริ่มต้นของสาขาที่ไม่ได้ตั้ง settings.tax_mode
+    //   none      = ไม่จด VAT → tax_satang = 0 (ร้านนำร่อง)
+    //   inclusive = ราคาขายรวม VAT แล้ว → total ไม่เปลี่ยน, tax_satang = ส่วน VAT ที่อยู่ในยอดหลังหักส่วนลด
+    'tax_mode' => env('POS_TAX_MODE', 'none'),
+    'vat_rate_percent' => (int) env('POS_VAT_RATE_PERCENT', 7),
 
     'idempotency_ttl_hours' => (int) env('POS_IDEMPOTENCY_TTL_HOURS', 24),
 
@@ -24,8 +29,26 @@ return [
     ],
 
     'payments' => [
+        // provider เมื่อสาขายังไม่ได้เลือกบัญชี QR (stores.qr_payment_account_id) — production ควรตั้งเป็นค่าว่าง
         'default_qr_provider' => env('POS_QR_PROVIDER', 'mock'),
+        // omise / easyslip: credentials อยู่ใน payment_accounts ต่อ tenant (เข้ารหัส) — ที่นี่เป็นค่าระดับระบบเท่านั้น
         'providers' => [
+            // เรียก API ผ่าน soap/laravel-omise (URL/timeout/driver ตั้งใน config/omise.php)
+            'omise' => [
+                'class' => OmiseProvider::class,
+                'qr_ttl_minutes' => 15,
+                'replay_window_seconds' => 300,
+                'min_amount_satang' => 2000, // PromptPay ขั้นต่ำ 20.00 บาท
+                'credentials' => ['secret_key', 'webhook_secret'],
+                'settings' => ['public_key'],
+            ],
+            'easyslip' => [
+                'class' => EasySlipProvider::class,
+                'api_base' => env('EASYSLIP_API_BASE', 'https://api.easyslip.com/v2'),
+                'qr_ttl_minutes' => 15,
+                'credentials' => ['api_key', 'webhook_secret'],
+                'settings' => ['promptpay_id'],
+            ],
             'mock' => [
                 'class' => MockQrProvider::class,
                 // secret อยู่ใน environment เท่านั้น ไม่เก็บใน DB (spec §8)
@@ -54,6 +77,7 @@ return [
         'payments.view' => 'ดูการชำระเงิน',
         'payments.create' => 'รับชำระเงิน',
         'payments.refund' => 'คืนเงิน',
+        'payments.configure' => 'ตั้งค่าบัญชีรับชำระเงิน QR',
         'cashier.operate' => 'เปิดกะ/บันทึกเงินเข้าออก',
         'cashier.close' => 'ปิดกะ',
         'reports.view' => 'ดูรายงาน',

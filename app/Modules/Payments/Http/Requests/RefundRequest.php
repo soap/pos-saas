@@ -11,6 +11,9 @@ class RefundRequest extends FormRequest
         return [
             'amount_satang' => ['required', 'integer', 'min:1'],
             'reason' => ['required', 'string', 'min:3', 'max:500'],
+            // QR ที่ provider คืนเงินอัตโนมัติไม่ได้: ร้านโอนคืนเองแล้วบันทึกด้วย manual_transfer
+            'refund_method' => ['nullable', 'in:manual_transfer'],
+            'transfer_reference' => ['nullable', 'string', 'max:128'],
         ];
     }
 }

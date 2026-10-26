@@ -15,6 +15,8 @@ class CreateOrderRequest extends FormRequest
         return [
             'order_type' => ['required', 'in:dine_in,takeaway'],
             'table_label' => ['nullable', 'string', 'max:32'],
+            // ทานที่ร้าน: ผูกโต๊ะ (ชื่อโต๊ะจะถูกใช้เป็น table_label)
+            'dining_table_id' => ['nullable', 'uuid'],
             'notes' => ['nullable', 'string', 'max:500'],
             ...OrderItemRules::rules('items', required: false),
         ];

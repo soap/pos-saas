@@ -6,7 +6,9 @@ use App\Modules\Catalog\Http\Controllers\CatalogController;
 use App\Modules\Devices\Http\Controllers\DeviceController;
 use App\Modules\Identity\Http\Controllers\AuthController;
 use App\Modules\Kitchen\Http\Controllers\KitchenController;
+use App\Modules\Ordering\Http\Controllers\DiningTableController;
 use App\Modules\Ordering\Http\Controllers\OrderController;
+use App\Modules\Payments\Http\Controllers\PaymentAccountController;
 use App\Modules\Payments\Http\Controllers\PaymentController;
 use App\Modules\Reporting\Http\Controllers\ReportController;
 use App\Modules\Tenancy\Http\Controllers\TenantController;
@@ -29,13 +31,20 @@ use Illuminate\Support\Facades\Route;
 
 // route ระดับ tenant/store — ลงทะเบียน 2 ชุด: มี prefix /t/{slug} และไม่มี (subdomain/header)
 $tenantRoutes = function () {
-    Route::get('context', [TenantController::class, 'context']);
+    // ส่ง X-Store-Id มาด้วย → ได้ store + permission ของ role ระดับสาขา (เช่น cashier)
+    Route::get('context', [TenantController::class, 'context'])->middleware('store:optional');
     Route::get('stores', [TenantController::class, 'stores'])->middleware('perm:stores.view');
     Route::post('stores', [TenantController::class, 'createStore'])->middleware('perm:stores.manage');
 
     Route::get('members', [TenantController::class, 'members'])->middleware('perm:members.manage');
     Route::post('members', [TenantController::class, 'addMember'])->middleware('perm:members.manage');
     Route::delete('members/{id}/roles/{role}', [TenantController::class, 'removeRole'])->middleware('perm:members.manage');
+
+    // บัญชีรับชำระ QR (ระดับ tenant)
+    Route::get('payment-accounts', [PaymentAccountController::class, 'index'])->middleware('perm:payments.configure');
+    Route::post('payment-accounts', [PaymentAccountController::class, 'store'])->middleware('perm:payments.configure');
+    Route::patch('payment-accounts/{id}', [PaymentAccountController::class, 'update'])->middleware('perm:payments.configure');
+    Route::put('stores/{id}/qr-payment-account', [PaymentAccountController::class, 'assignToStore'])->middleware('perm:payments.configure');
 
     // Catalog (ระดับ tenant)
     Route::get('categories', [CatalogController::class, 'categories'])->middleware('perm:catalog.view');
@@ -64,6 +73,12 @@ $tenantRoutes = function () {
         Route::delete('orders/{id}/items/{item}', [OrderController::class, 'removeItem'])->middleware('perm:orders.create');
         Route::post('orders/{id}/discount', [OrderController::class, 'discount'])->middleware('perm:orders.discount');
         Route::post('orders/{id}/cancel', [OrderController::class, 'cancel'])->middleware('perm:orders.cancel');
+        Route::post('orders/{id}/move-table', [OrderController::class, 'moveTable'])->middleware('perm:orders.create');
+
+        // Tables (ผังโต๊ะของสาขา)
+        Route::get('tables', [DiningTableController::class, 'index'])->middleware('perm:orders.view');
+        Route::post('tables', [DiningTableController::class, 'store'])->middleware('perm:stores.manage');
+        Route::patch('tables/{id}', [DiningTableController::class, 'update'])->middleware('perm:stores.manage');
 
         // Kitchen
         Route::post('orders/{id}/send-to-kitchen', [KitchenController::class, 'sendToKitchen'])->middleware(['perm:orders.create', 'idempotent:kitchen.send']);
@@ -79,6 +94,7 @@ $tenantRoutes = function () {
             Route::post('orders/{id}/payments', [PaymentController::class, 'store'])->middleware(['perm:payments.create', 'idempotent:payments.create']);
             Route::get('payments/{id}', [PaymentController::class, 'show'])->middleware('perm:payments.view');
             Route::post('payments/{id}/cancel', [PaymentController::class, 'cancel'])->middleware('perm:payments.create');
+            Route::post('payments/{id}/slip', [PaymentController::class, 'submitSlip'])->middleware(['perm:payments.create', 'idempotent:payments.slip']);
             Route::post('payments/{id}/refunds', [PaymentController::class, 'refund'])->middleware(['perm:payments.refund', 'idempotent:payments.refund']);
         });
 
@@ -109,8 +125,10 @@ Route::prefix('v1')->group(function () use ($tenantRoutes) {
 
     // ---------- Public ----------
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
-    Route::post('webhooks/payments/{provider}', [PaymentController::class, 'webhook'])
-        ->where('provider', '[a-z0-9_]+')->middleware('throttle:webhooks');
+    // {account} = payment_accounts.account_key (omise/easyslip ต่อ tenant); mock ไม่มี account
+    Route::post('webhooks/payments/{provider}/{account?}', [PaymentController::class, 'webhook'])
+        ->where(['provider' => '[a-z0-9_]+', 'account' => 'pa_[a-z0-9]{32}'])->middleware('throttle:webhooks')
+        ->name('webhooks.payments');
 
     Route::middleware('auth:sanctum')->group(function () use ($tenantRoutes) {
 

@@ -120,6 +120,9 @@ class PrintService
             'subtotal' => Satang::format($order->subtotal_satang),
             'discount' => Satang::format($order->discount_satang),
             'tax' => Satang::format($order->tax_satang),
+            // ราคารวม VAT: แสดง "มูลค่าก่อน VAT" + "VAT" โดยยอดรวมไม่เปลี่ยน
+            'tax_included' => $store->taxMode() === 'inclusive',
+            'amount_before_tax' => Satang::format($order->total_satang - $order->tax_satang),
             'total' => Satang::format($order->total_satang),
             'payments' => $paid->values()->map(fn ($p) => [
                 'method' => $p->method,

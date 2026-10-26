@@ -14,14 +14,19 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * อ่าน X-Store-Id แล้วตรวจว่า store อยู่ใน tenant ปัจจุบัน และ user มี store membership ที่ active
  * ต้องใช้หลัง ResolveTenant เสมอ
+ *
+ * ->middleware('store:optional') — ไม่ส่ง header ก็ผ่าน (context ระดับ tenant) แต่ถ้าส่งมาต้องตรวจเหมือนเดิม
  */
 class ResolveStore
 {
     public function __construct(private TenantContext $ctx) {}
 
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, string $mode = 'required'): Response
     {
         $storeId = (string) $request->header('X-Store-Id', '');
+        if ($storeId === '' && $mode === 'optional') {
+            return $next($request);
+        }
         if (! Str::isUuid($storeId)) {
             throw ApiException::badRequest('store_context_missing', 'ต้องระบุ X-Store-Id เป็น UUID');
         }

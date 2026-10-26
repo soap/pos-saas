@@ -85,6 +85,20 @@ class CashierAndAuthTest extends TestCase
         $this->assertDatabaseMissing('audit_logs', ['metadata' => json_encode(['password' => 'wrong'])]);
     }
 
+    public function test_context_with_store_header_includes_store_scoped_permissions(): void
+    {
+        $ctx = $this->api($this->cashierA1, 'GET', 'context')->assertOk()->assertJsonPath('store.id', $this->storeA1->id);
+
+        $this->assertContains('orders.create', $ctx->json('permissions'));
+        $this->assertContains('cashier.operate', $ctx->json('permissions'));
+    }
+
+    public function test_context_rejects_store_the_user_cannot_access(): void
+    {
+        $this->api($this->cashierA1, 'GET', 'context', store: $this->storeA2)
+            ->assertForbidden()->assertJsonPath('error.code', 'store_access_denied');
+    }
+
     public function test_disabled_user_cannot_login(): void
     {
         User::query()->where('id', $this->cashierA1->id)->update(['status' => 'disabled']);

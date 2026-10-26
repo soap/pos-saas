@@ -4,7 +4,7 @@
 
 สำหรับทีมพัฒนา • MVP ร้านอาหาร / ร้านก๋วยเตี๋ยว • Laravel API + Vue 3 + TypeScript
 
-Version 1.1 | 18 ตุลาคม 2569
+Version 1.2 | 25 ตุลาคม 2569
 
 *สถานะ: Draft for Engineering Review*
 
@@ -13,8 +13,8 @@ Version 1.1 | 18 ตุลาคม 2569
 | **รายการ** | **รายละเอียด**                                            |
 |------------|----------------------------------------------------------|
 | ชื่อเอกสาร   | Laravel POS SaaS — ERD & Database Schema Specification   |
-| เวอร์ชัน     | 1.1                                                      |
-| วันที่        | 18 ตุลาคม 2569                                            |
+| เวอร์ชัน     | 1.2                                                      |
+| วันที่        | 25 ตุลาคม 2569 (1.2: บันทึกการตัดสินใจในภาคผนวก B ตาม implementation) |
 | สถานะ      | Draft for Engineering Review — ต้องทบทวนก่อนเริ่ม production |
 | ผู้ใช้เอกสาร  | Backend, Frontend, QA, DevOps และผู้ดูแลผลิตภัณฑ์              |
 | ขอบเขต     | MVP ระบบ POS สำหรับร้านอาหารแบบ Multi-tenant / Multi-store |
@@ -358,7 +358,7 @@ app/
 
 - ทุก query ที่อ่าน/เขียนข้อมูลธุรกิจต้อง scope tenant_id และ store_id; พิจารณา repository/query scope กลางเพื่อลดการตกหล่น
 
-- ใช้ least privilege กับ database/application credentials; secret ของ payment provider อยู่ใน secret manager/environment ไม่อยู่ใน DB payload
+- ใช้ least privilege กับ database/application credentials; secret ของ payment provider ระดับระบบอยู่ใน secret manager/environment ไม่อยู่ใน DB payload; credentials ของบัญชีรับชำระต่อ tenant เก็บในตาราง payment_accounts แบบเข้ารหัสเท่านั้น (ดูภาคผนวก B7)
 
 - ตรวจ webhook signature ด้วย raw request body; ตรวจ timestamp/replay window หาก provider รองรับ
 
@@ -467,19 +467,92 @@ Schema::create('orders', function (Blueprint $table) {
 
 # ภาคผนวก B — ประเด็นที่ต้องตัดสินใจก่อน production
 
-- นโยบาย cashier shift: หนึ่งกะเปิดได้ต่อ store หรือหนึ่งกะต่อ cashier
+ส่วนนี้บันทึกว่า implementation ปัจจุบัน (v1.2) เลือกแนวทางใดไว้แล้ว และข้อใดยังต้องตัดสินใจ
 
-- วิธีคำนวณภาษี/ส่วนลด: รวมภาษีในราคา (inclusive) หรือบวกภาษีเพิ่ม (exclusive), ลำดับการใช้ส่วนลด
+**สถานะ:** ✅ ตัดสินแล้ว (โค้ดและ test บังคับใช้) • ⚠️ ตัดสินสำหรับ MVP แต่ต้องทบทวนก่อนเปิดร้านที่ต่างจากร้านนำร่อง • ❌ ยังไม่ได้ตัดสินใจ / ยังไม่ได้ทำ
 
-- เลขออเดอร์ reset รายวันหรือไม่ และ business_date อิง timezone ของ store แบบใดเมื่อ timezone เปลี่ยน
+## B1. นโยบาย cashier shift — ✅ หนึ่งกะเปิดต่อ store
 
-- สถานะ/transition ที่อนุญาตของ order, payment, kitchen ticket และ refund
+- เปิดกะได้ครั้งละ 1 กะต่อสาขา บังคับด้วย partial unique index `cashier_shifts_one_open_per_store ON cashier_shifts (store_id) WHERE status = 'open'`; ถ้าเปิดซ้ำจะได้ 409 `shift_already_open`
+- ทุก cash payment, cash refund และ cash movement ของสาขาลงกะที่เปิดอยู่นั้น (`CashierService::lockOpenShift`) ไม่ว่าใครเป็นผู้ทำรายการ; ต้องมีกะเปิดก่อนรับเงินสดหรือคืนเงินสด
+- ปิดกะ: lock row → คำนวณ expected = opening float + (cash_in + cash_sale) − (cash_out + refund) + adjustment → บันทึก counted และ variance; ปิดซ้ำได้ 409 `shift_not_open`
+- ผลที่ตามมา: สาขาที่มีหลายเครื่อง POS ใช้ลิ้นชักเงินร่วมกัน 1 กะ หากร้านต้องการแยกลิ้นชักต่อเครื่อง/ต่อแคชเชียร์ต้องเปลี่ยน index เป็น `(store_id, cashier_user_id)` หรือผูกกับ device และส่ง shift_id ในการชำระเงิน
 
-- นโยบาย soft delete, retention และการ export/ลบข้อมูล tenant
+## B2. ภาษีและส่วนลด — ✅ ราคารวม VAT (inclusive)
 
-- ขอบเขต unique ของ provider webhook event ID และ idempotency keys
+- ตัดสินแล้ว: ราคาขายที่ตั้งในเมนูเป็นราคารวม VAT แล้ว ลูกค้าจ่ายตามราคาเมนู ระบบไม่บวกภาษีเพิ่ม
+- เปิดใช้ต่อสาขาด้วย `stores.settings.tax_mode`: `none` (ไม่จด VAT — ร้านนำร่อง) หรือ `inclusive`; ถ้าไม่ตั้งจะใช้ค่าเริ่มต้นจาก `POS_TAX_MODE` (ค่าเริ่มต้น `none`); อัตราจาก `POS_VAT_RATE_PERCENT` (ค่าเริ่มต้น 7)
+- วิธีคิด: VAT = total × rate / (100 + rate) ปัดเป็นสตางค์ที่ใกล้สุด คิดครั้งเดียวจากยอดทั้งบิลหลังหักส่วนลด (ไม่คิดรายบรรทัด จึงไม่มีเศษปัดสะสม); เก็บที่ `orders.tax_satang` ส่วน `order_items.tax_satang` เป็น 0
+- ตัวอย่าง: ยอด 100.00 → VAT 6.54, มูลค่าก่อน VAT 93.46; ลด 10.00 → ยอด 90.00, VAT 5.89, มูลค่าก่อน VAT 84.11
+- ใบเสร็จ (`GET /orders/{id}/receipt`) ส่ง `tax_included`, `amount_before_tax` และ `tax` ให้ frontend/เครื่องพิมพ์แสดง
+- ลำดับการคิดยอด: subtotal = Σ(ราคาต่อหน่วยรวม modifier × จำนวน) ของรายการ active → หักส่วนลดระดับรายการ → หักส่วนลดระดับออเดอร์ = total (รวม VAT แล้ว)
+- ข้อจำกัด: VAT ใช้กับทุกสินค้าในสาขา ยังไม่รองรับสินค้ายกเว้น VAT รายตัว (`store_products.tax_profile` มีไว้แต่ยังไม่ถูกใช้); ยังไม่มี API แก้ settings ของสาขาหลังสร้าง; ถ้าเปลี่ยน tax_mode ขณะมีออเดอร์ค้าง ออเดอร์นั้นจะคิดตามค่าใหม่เมื่อยอดถูกคำนวณซ้ำ; ยังไม่ใช่ใบกำกับภาษีอย่างย่อ (ยังขาดเลขประจำตัวผู้เสียภาษี, เลขทะเบียนเครื่อง POS และเลขที่ใบกำกับที่ต่อเนื่อง)
+- ส่วนลดระดับออเดอร์เป็นจำนวนเงิน (satang) ไม่ใช่เปอร์เซ็นต์ ต้องมีสิทธิ์ `orders.discount`, ห้ามเกิน subtotal (422 `discount_exceeds_subtotal`) และถูก cap ไม่ให้เกิน subtotal ใหม่ทุกครั้งที่ยอดถูกคำนวณซ้ำ; ทุกครั้งบันทึก order_event และ audit log
+- ส่วนลดระดับรายการมีคอลัมน์ `order_items.discount_satang` แต่ยังไม่มี API ให้ตั้งค่า (เป็น 0 เสมอ)
 
-- ข้อกำหนดของ provider QR ที่จะเลือกภายหลัง: signature, expiry, query status, settlement และ refund
+## B3. เลขออเดอร์และ business_date — ✅ reset รายวันตามวันทำการของสาขา
+
+- เลขออเดอร์เริ่ม 1 ใหม่ทุกวันทำการ แยกต่อสาขา (unique `(store_id, business_date, order_number)`) โดย lock `store_order_counters` ด้วย `SELECT ... FOR UPDATE`; มี test ยิง request พร้อมกันหลายโปรเซสยืนยันว่าเลขไม่ซ้ำ
+- `business_date` = วันที่ปัจจุบันตาม `stores.timezone` ณ เวลาสร้างออเดอร์ (ค่าเริ่มต้น `Asia/Bangkok`) และเก็บลง order ถาวร ไม่คำนวณใหม่ภายหลัง; รายงานรายวันใช้ค่านี้
+- วันทำการตัดที่เที่ยงคืนตาม timezone ของสาขา ยังไม่รองรับ "day cutoff" (เช่น ร้านที่เปิดเลยเที่ยงคืนแล้วนับเป็นวันเดิม)
+- การเปลี่ยน timezone: ตั้งได้ตอนสร้างสาขาเท่านั้น ยังไม่มี API แก้ไข หากเปลี่ยนในฐานข้อมูล ออเดอร์เก่าคง business_date เดิม ออเดอร์ใหม่ใช้ timezone ใหม่ (counter เป็นต่อ business_date จึงไม่ชนกัน แต่วันเปลี่ยนอาจได้ช่วงวันที่สั้น/ยาวกว่าปกติ)
+
+## B4. สถานะและ transition — ✅
+
+| **Entity** | **Transition ที่อนุญาต** |
+|----|----|
+| Order | `draft` → `placed` (มี ticket queued) → `preparing` → `ready` → `served` คำนวณจากสถานะ kitchen ticket ที่ไม่ถูกยกเลิก; → `completed` เมื่อจ่ายครบพอดี (net paid = total), ทุก ticket served และไม่มีรายการค้างส่งครัว (ข้ามเงื่อนไขครัวเมื่อ `settings.kitchen_enabled = false`); → `cancelled` เฉพาะออเดอร์ที่ยังเปิดและไม่มี payment ค้าง/สำเร็จ (ต้องคืนเงินหรือยกเลิก payment ก่อน) |
+| Kitchen ticket | `queued` → `preparing` (acknowledge); `queued`/`preparing` → `ready`; `ready` → `served`; `queued`/`preparing`/`ready` → `cancelled` (ต้องมีสิทธิ์ `kitchen.void`); ส่ง action เดิมซ้ำเมื่ออยู่สถานะปลายทางแล้วถือว่า idempotent |
+| Payment (cash) | สร้างเป็น `succeeded` ทันทีภายใต้กะที่เปิดอยู่ |
+| Payment (QR) | `pending` → `processing` (สร้าง QR สำเร็จ) → `succeeded` / `failed` / `cancelled` ผ่าน webhook ที่ verify แล้ว, การ poll สถานะ หรือการยกเลิก; webhook `succeeded` ที่มาหลัง `cancelled`/`failed` ยังรับรู้ยอด (เงินเข้าบัญชีแล้ว); webhook ไม่เปลี่ยนสถานะ payment ที่ refund แล้ว |
+| Payment (หลังสำเร็จ) | `succeeded` → `partially_refunded` → `refunded` ผ่าน refund ที่สำเร็จเท่านั้น |
+| Refund | `pending` (จองยอด) → `succeeded` หรือ `failed`; refund ที่ failed เก็บไว้เป็นหลักฐานและคืนยอดที่จองไว้ |
+| Cashier shift | `open` → `closed` ครั้งเดียว |
+
+## B5. Soft delete, retention และข้อมูล tenant — ❌ บางส่วน
+
+- ✅ Soft delete ใช้กับ catalog เท่านั้น: categories, products, modifier_groups, modifier_options
+- ✅ ประวัติการเงินไม่ถูกลบ: FK เป็น `restrictOnDelete` ไม่มี cascade ไปยัง orders, payments, refunds, cash movements, audit logs
+- ✅ Idempotency keys หมดอายุใน 24 ชั่วโมง (`POS_IDEMPOTENCY_TTL_HOURS`) และลบทุกชั่วโมงด้วย `idempotency:prune`
+- ❌ ยังไม่มี retention สำหรับ `payment_webhook_events` (raw payload), `audit_logs`, `outbox_events` ที่ publish แล้ว, `device_events` และ `print_jobs`; ทุกตารางเก็บถาวร
+- ❌ ยังไม่มี workflow ปิด tenant, export ข้อมูล หรือลบข้อมูล tenant (มีเพียงสถานะ `tenants.status = closed`)
+- ต้องตัดสินใจ: ระยะเวลาเก็บแต่ละประเภท (หลักฐานทางบัญชี/ภาษีมักต้องเก็บหลายปี แต่ raw webhook payload เก็บสั้นกว่าได้), รูปแบบ export และขั้นตอนลบเมื่อ tenant ขอ
+
+## B6. ขอบเขต unique ของ webhook และ idempotency — ✅
+
+- Webhook event: unique `(provider_code, provider_account_key, external_event_id)` (`payment_webhook_events_dedupe_unique`); `provider_account_key` ใช้ `''` แทน NULL เพื่อให้ unique ทำงานใน PostgreSQL
+- Provider reference: unique `(provider_code, provider_reference)` เมื่อไม่เป็น NULL
+- Idempotency key: unique `(tenant_id, actor_user_id, operation, idempotency_key)`; key เดิม + body เดิม → ตอบ response เดิม, key เดิม + body ต่าง → 422 `idempotency_key_reused`, กำลังประมวลผลอยู่ → 409 `idempotency_in_progress`; เก็บเฉพาะ response 2xx (error ลบ key ให้ retry ได้)
+- ใช้กับ: สร้างออเดอร์, เพิ่มรายการ, ส่งครัว, เริ่มชำระเงิน, คืนเงิน, cash movement
+
+## B7. Provider QR — ✅ Omise และ EasySlip (บัญชีต่อ tenant)
+
+**บัญชีรับชำระ (`payment_accounts`)**
+- แต่ละ tenant สร้างบัญชีของตัวเองผ่าน `POST /payment-accounts` (สิทธิ์ `payments.configure`) และแต่ละสาขาเลือกบัญชีด้วย `PUT /stores/{id}/qr-payment-account`; สาขาที่ไม่ได้เลือกใช้ `POS_QR_PROVIDER` (dev/test = mock, production ควรตั้งเป็นค่าว่าง → 422 `qr_not_configured`)
+- credentials (Omise secret key, webhook secret, EasySlip API key) เก็บใน DB เข้ารหัสด้วย `APP_KEY` (encrypted cast) ไม่ถูกส่งออกทาง API และไม่ถูกบันทึกใน audit log — เป็นข้อยกเว้นของ §8 เพราะเงินเข้าบัญชีของแต่ละร้าน จึงใช้คีย์ระดับระบบเดียวไม่ได้; การหมุน `APP_KEY` ต้อง re-encrypt ตารางนี้
+- webhook URL ต่อบัญชี: `POST /api/v1/webhooks/payments/{provider}/{account_key}` — ระบบเลือก secret จาก account_key แล้ว verify และ resolve payment เฉพาะของบัญชีนั้น (บัญชีหนึ่งแตะ payment ของบัญชีอื่นไม่ได้)
+
+**Omise PromptPay** — เงินเข้าบัญชี Omise ของร้าน
+- เรียก API ผ่าน package `soap/laravel-omise` ด้วย `Omise::withKeys()` (public key ใน `settings.public_key`, secret key ใน credentials); URL/timeout/driver ตั้งที่ `config/omise.php`; ตรวจ signature ของ webhook ด้วย `OmiseSignatureValidator::assertValid()` ของ `soap/laravel-omise-webhooks` v2 แบบ standalone (ไม่ใช้ route, ตาราง `webhook_calls` และ job ของ package) เพื่อให้ webhook ทุก provider ผ่าน dedupe ต่อ account ของระบบเดียวกัน
+- สร้าง charge `source[type]=promptpay` → QR เป็นรูป (`qr.image_url`); ยอดขั้นต่ำ 20.00 บาท (422 `amount_below_provider_minimum`)
+- webhook ตรวจ `Omise-Signature` = HMAC-SHA256 ของ `<Omise-Signature-Timestamp>.<raw body>` ด้วย webhook secret ที่ base64-decode แล้ว, replay window 300 วินาที; poll ด้วย `GET /charges/{id}`
+- **คืนเงินผ่าน API ไม่ได้** (Omise: "PromptPay charges cannot be voided or refunded through Omise")
+
+**EasySlip** — ลูกค้าโอน PromptPay เข้าบัญชีร้านโดยตรง ไม่มีค่าธรรมเนียมต่อรายการ (เสียโควตาตรวจสลิป)
+- ระบบสร้าง PromptPay QR พร้อมยอดเองจาก `settings.promptpay_id` (`qr.payload`, `qr.requires_slip = true`)
+- แคชเชียร์สแกน QR บนสลิปลูกค้า → `POST /payments/{id}/slip` → EasySlip async verify (`matchAccount`, `matchAmount`, `checkDuplicate`, `remark` = provider reference) → ผลมาทาง webhook `X-EasySlip-Signature: sha256=<hmac>`; poll `GET /verify/bank/jobs/{jobId}` ด้วย `GET /payments/{id}?refresh=1`
+- สลิปผ่านเมื่อ: ไม่ซ้ำ, ผู้รับตรงกับบัญชีที่ลงทะเบียนไว้ใน dashboard EasySlip ของ tenant และยอดตรง; ไม่ผ่าน → payment ยังเป็น `processing` และแสดง `slip.rejection.reason` ให้สแกนสลิปใหม่
+- `transRef` ของสลิปเก็บใน `payment_attempts.provider_transaction_ref` (unique) กันสลิปเดียวจ่ายสองออเดอร์ แม้ EasySlip จะไม่จับว่าซ้ำ
+- ไม่มี refund API
+
+**การคืนเงิน QR**
+- provider ที่ไม่มี refund API: ร้านโอนคืนลูกค้าเอง แล้วบันทึก `POST /payments/{id}/refunds` พร้อม `refund_method=manual_transfer` และ `transfer_reference`; ถ้าไม่ระบุจะได้ 422 `manual_refund_required`; ใช้ lock และการตรวจยอดเดียวกับ refund อื่น, `refunds.method` = `cash` / `provider` / `manual_transfer`
+- ลูกค้าโอนซ้ำหลังจ่ายสำเร็จแล้ว (ธุรกรรมใหม่) → บันทึก audit `payment.extra_transfer_received` ให้ร้านโอนคืน
+
+**ข้อจำกัดที่ยังเหลือ**
+- ยังไม่มีงานกระทบยอด (reconciliation) กับ settlement ของ Omise หรือ statement ธนาคาร
+- EasySlip `matchAccount` เทียบกับทุกบัญชีใน dashboard ของ tenant — ถ้าสาขาใช้บัญชีธนาคารต่างกัน สลิปที่โอนเข้าบัญชีสาขาอื่นของ tenant เดียวกันจะผ่าน
+- ยังไม่ได้ทดสอบกับ sandbox จริงของทั้งสอง provider (test ใช้ HTTP fake ตามเอกสาร API)
 
 # สรุปสำหรับทีม
 

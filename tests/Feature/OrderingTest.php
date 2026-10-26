@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Modules\Ordering\Models\Order;
+use App\Modules\Tenancy\Models\Store;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
@@ -53,6 +54,39 @@ class OrderingTest extends TestCase
         $this->api($this->ownerA, 'PUT', "products/{$this->noodleA->id}/store-price", ['price_satang' => 6500, 'is_available' => false])->assertOk();
         $this->api($this->ownerA, 'POST', 'orders', ['order_type' => 'dine_in', 'items' => [$this->noodleIntent(1)]])
             ->assertStatus(422)->assertJsonPath('error.code', 'product_unavailable');
+    }
+
+    public function test_vat_inclusive_store_keeps_price_and_reports_vat_after_discount(): void
+    {
+        $vatStore = $this->createVatInclusiveStore();
+
+        $order = $this->createOrder($this->ownerA, [$this->noodleIntent(2)], $vatStore);
+        // ราคารวม VAT: total = 10000 ไม่เปลี่ยน, VAT = 10000 × 7/107 = 654.2 → 654
+        $this->assertSame([10000, 654, 10000], [$order['subtotal_satang'], $order['tax_satang'], $order['total_satang']]);
+
+        $discounted = $this->api($this->ownerA, 'POST', "orders/{$order['id']}/discount", ['discount_satang' => 1000], $vatStore)
+            ->assertOk()->json('data');
+        // VAT คิดจากยอดหลังหักส่วนลด: 9000 × 7/107 = 588.8 → 589
+        $this->assertSame([9000, 589], [$discounted['total_satang'], $discounted['tax_satang']]);
+
+        $receipt = $this->api($this->ownerA, 'GET', "orders/{$order['id']}/receipt", store: $vatStore)->assertOk()->json('data');
+        $this->assertTrue($receipt['tax_included']);
+        $this->assertSame(['84.11', '5.89', '90.00'], [$receipt['amount_before_tax'], $receipt['tax'], $receipt['total']]);
+    }
+
+    public function test_store_rejects_unknown_tax_mode_with_422(): void
+    {
+        $this->api($this->ownerA, 'POST', 'stores', ['code' => 'A3', 'name' => 'A3', 'settings' => ['tax_mode' => 'exclusive']])
+            ->assertStatus(422)->assertJsonPath('error.code', 'validation_failed')
+            ->assertJsonStructure(['error' => ['details' => ['settings.tax_mode']]]);
+    }
+
+    private function createVatInclusiveStore(): Store
+    {
+        $id = $this->api($this->ownerA, 'POST', 'stores', ['code' => 'VAT', 'name' => 'สาขาจด VAT', 'settings' => ['tax_mode' => 'inclusive']])
+            ->assertCreated()->json('data.id');
+
+        return $this->inTenant($this->tenantA, fn () => Store::query()->findOrFail($id));
     }
 
     public function test_required_modifier_group_is_enforced(): void
