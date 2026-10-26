@@ -257,6 +257,8 @@ class CatalogController extends Controller
             'base_price_satang' => [$req, 'integer', 'min:0'],
             'status' => ['sometimes', 'in:active,inactive'],
             'sort_order' => ['sometimes', 'integer'],
+            // null = ครัวหลัก
+            'kitchen_station_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('kitchen_stations', 'id')->where('tenant_id', $tenantId)],
             'modifier_group_ids' => ['sometimes', 'array'],
             'modifier_group_ids.*' => ['uuid'],
         ]);

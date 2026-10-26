@@ -6,6 +6,7 @@ use App\Modules\Catalog\Http\Controllers\CatalogController;
 use App\Modules\Devices\Http\Controllers\DeviceController;
 use App\Modules\Identity\Http\Controllers\AuthController;
 use App\Modules\Kitchen\Http\Controllers\KitchenController;
+use App\Modules\Kitchen\Http\Controllers\KitchenStationController;
 use App\Modules\Ordering\Http\Controllers\DiningTableController;
 use App\Modules\Ordering\Http\Controllers\OrderController;
 use App\Modules\Payments\Http\Controllers\PaymentAccountController;
@@ -58,6 +59,10 @@ $tenantRoutes = function () {
     Route::patch('products/{id}', [CatalogController::class, 'updateProduct'])->middleware('perm:catalog.manage');
     Route::get('modifier-groups', [CatalogController::class, 'modifierGroups'])->middleware('perm:catalog.view');
     Route::post('modifier-groups', [CatalogController::class, 'createModifierGroup'])->middleware('perm:catalog.manage');
+    // store:optional → role ระดับสาขา (เช่น ครัว) ใช้สิทธิ์ของสาขาที่ส่ง X-Store-Id มาได้
+    Route::get('kitchen-stations', [KitchenStationController::class, 'index'])->middleware(['store:optional', 'perm:catalog.view']);
+    Route::post('kitchen-stations', [KitchenStationController::class, 'store'])->middleware('perm:catalog.manage');
+    Route::patch('kitchen-stations/{id}', [KitchenStationController::class, 'update'])->middleware('perm:catalog.manage');
     Route::patch('modifier-groups/{id}', [CatalogController::class, 'updateModifierGroup'])->middleware('perm:catalog.manage');
     Route::post('modifier-groups/{id}/options', [CatalogController::class, 'addModifierOption'])->middleware('perm:catalog.manage');
     Route::patch('modifier-options/{id}', [CatalogController::class, 'updateModifierOption'])->middleware('perm:catalog.manage');

@@ -20,6 +20,7 @@ const NAV = [
     { name: 'manage.products', label: 'สินค้า', permission: 'catalog.manage' },
     { name: 'manage.categories', label: 'หมวดหมู่', permission: 'catalog.manage' },
     { name: 'manage.modifiers', label: 'ตัวเลือกเสริม', permission: 'catalog.manage' },
+    { name: 'manage.stations', label: 'จุดในครัว', permission: 'catalog.manage' },
     { name: 'manage.tables', label: 'โต๊ะ', permission: 'stores.manage' },
     { name: 'manage.stores', label: 'สาขา', permission: 'stores.view' },
     { name: 'manage.members', label: 'พนักงาน', permission: 'members.manage' },

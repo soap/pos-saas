@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { api } from '@pos/api/client';
 import type { KitchenTicket, KitchenTicketPage, KitchenTicketStatus } from '@pos/api/types';
+import { storage } from '@pos/lib/storage';
 
 type ConnectionState = 'connecting' | 'live' | 'offline';
 
@@ -9,6 +10,8 @@ type ConnectionState = 'connecting' | 'live' | 'offline';
 const FULL_SYNC_EVERY_MS = 5 * 60 * 1000;
 const MAX_BACKOFF_MS = 30_000;
 const ACTIVE: KitchenTicketStatus[] = ['queued', 'preparing', 'ready'];
+/** station ที่จอเครื่องนี้แสดง — จำไว้ต่อเครื่อง (แท็บเล็ตแต่ละจุดในครัว) */
+const STATION_KEY = 'pos.kitchen.station';
 
 /**
  * คิวงานครัวแบบ polling: full sync ครั้งแรก แล้วดึงเฉพาะที่เปลี่ยนด้วย updated_after = server_time รอบก่อน
@@ -23,6 +26,8 @@ export const useKitchenStore = defineStore('kitchen', () => {
     const lateThresholdMinutes = ref(15);
     /** id ของ ticket ใหม่ที่เพิ่งเข้ามา (ใช้ไฮไลต์การ์ด) */
     const freshIds = ref<Set<string>>(new Set());
+    /** '' = ทุก station, 'main' = ครัวหลัก, หรือ id ของ station */
+    const station = ref<string>(storage.get(STATION_KEY) ?? '');
 
     let cursor: string | null = null;
     let lastFullSyncAt = 0;
@@ -30,6 +35,8 @@ export const useKitchenStore = defineStore('kitchen', () => {
     let failures = 0;
     let running = false;
     let onNewTickets: (count: number) => void = () => {};
+    /** เพิ่มทุกครั้งที่เปลี่ยน station — ผล poll ที่ค้างจาก station เดิมจะถูกทิ้ง */
+    let generation = 0;
 
     const byStatus = computed(() => {
         const groups: Record<'queued' | 'preparing' | 'ready', KitchenTicket[]> = { queued: [], preparing: [], ready: [] };
@@ -55,6 +62,7 @@ export const useKitchenStore = defineStore('kitchen', () => {
             const page: KitchenTicketPage = await api.get<KitchenTicketPage>('/kitchen/tickets', {
                 updated_after: updatedAfter ?? undefined,
                 cursor: nextCursor ?? undefined,
+                station: station.value || undefined,
             });
             serverTime ??= page.server_time;
             pollIntervalSeconds.value = page.poll_interval_seconds;
@@ -81,7 +89,11 @@ export const useKitchenStore = defineStore('kitchen', () => {
     async function sync(): Promise<void> {
         const isFull = cursor === null || Date.now() - lastFullSyncAt > FULL_SYNC_EVERY_MS;
         const isFirstLoad = lastSyncAt.value === null;
+        const startedAt = generation;
         const result = await fetchAll(isFull ? null : cursor);
+        if (startedAt !== generation) {
+            return;
+        }
 
         const next = isFull ? new Map<string, KitchenTicket>() : new Map(tickets.value);
         const newQueued: string[] = [];
@@ -156,6 +168,17 @@ export const useKitchenStore = defineStore('kitchen', () => {
         void tick();
     }
 
+    /** เปลี่ยน station → ล้างคิวแล้ว full sync ใหม่ (ไม่ส่งเสียงสำหรับงานที่ค้างอยู่เดิม) */
+    function setStation(next: string): void {
+        generation++;
+        station.value = next;
+        storage.set(STATION_KEY, next || null);
+        tickets.value = new Map();
+        cursor = null;
+        lastSyncAt.value = null;
+        syncNow();
+    }
+
     function apply(ticket: KitchenTicket): void {
         const next = new Map(tickets.value);
         if (ACTIVE.includes(ticket.status)) {
@@ -192,6 +215,8 @@ export const useKitchenStore = defineStore('kitchen', () => {
         pollIntervalSeconds,
         lateThresholdMinutes,
         freshIds,
+        station,
+        setStation,
         start,
         stop,
         syncNow,

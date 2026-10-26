@@ -19,6 +19,7 @@ export const router = createRouter({
                 { path: 'products', name: 'manage.products', component: () => import('@pos/views/manage/ProductsView.vue') },
                 { path: 'categories', name: 'manage.categories', component: () => import('@pos/views/manage/CategoriesView.vue') },
                 { path: 'modifiers', name: 'manage.modifiers', component: () => import('@pos/views/manage/ModifiersView.vue') },
+                { path: 'stations', name: 'manage.stations', component: () => import('@pos/views/manage/StationsView.vue') },
                 { path: 'tables', name: 'manage.tables', component: () => import('@pos/views/manage/TablesView.vue') },
                 { path: 'stores', name: 'manage.stores', component: () => import('@pos/views/manage/StoresView.vue') },
                 { path: 'members', name: 'manage.members', component: () => import('@pos/views/manage/MembersView.vue') },

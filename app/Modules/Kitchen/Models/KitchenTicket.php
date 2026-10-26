@@ -29,6 +29,11 @@ class KitchenTicket extends Model
         return $this->hasMany(KitchenTicketItem::class)->orderBy('created_at')->orderBy('id');
     }
 
+    public function station(): BelongsTo
+    {
+        return $this->belongsTo(KitchenStation::class, 'kitchen_station_id');
+    }
+
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);

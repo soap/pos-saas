@@ -17,6 +17,8 @@ class KitchenTicketResource extends JsonResource
             'order_number' => $this->whenLoaded('order', fn () => $this->order->order_number),
             'order_type' => $this->whenLoaded('order', fn () => $this->order->order_type),
             'table_label' => $this->whenLoaded('order', fn () => $this->order->table_label),
+            // null = ครัวหลัก
+            'station' => $this->whenLoaded('station', fn () => $this->station ? ['id' => $this->station->id, 'name' => $this->station->name] : null),
             'revision' => $this->revision,
             'is_addition' => $this->revision > 1,
             'status' => $this->status,

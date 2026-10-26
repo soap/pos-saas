@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ApiError, api } from '@pos/api/client';
-import type { Category, ManagedModifierGroup, Product, StorePrice } from '@pos/api/types';
+import type { Category, KitchenStation, ManagedModifierGroup, Product, StorePrice } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
 import StorePriceDialog from '@pos/components/StorePriceDialog.vue';
 import { formatBaht, parseBahtToSatang } from '@pos/lib/money';
@@ -16,6 +16,7 @@ interface ProductForm {
     price: string;
     status: 'active' | 'inactive';
     sort_order: number;
+    kitchen_station_id: string;
     modifier_group_ids: string[];
 }
 
@@ -23,6 +24,7 @@ const session = useSessionStore();
 const products = ref<Product[]>([]);
 const categories = ref<Category[]>([]);
 const groups = ref<ManagedModifierGroup[]>([]);
+const stations = ref<KitchenStation[]>([]);
 /** product_id → ราคา/การขายที่สาขาปัจจุบัน */
 const storePrices = ref<Map<string, StorePrice>>(new Map());
 const pricingProduct = ref<Product | null>(null);
@@ -47,17 +49,19 @@ const filtered = computed(() => {
 const priceSatang = computed(() => parseBahtToSatang(form.value.price));
 
 function emptyForm(): ProductForm {
-    return { name: '', sku: '', category_id: '', description: '', price: '', status: 'active', sort_order: 0, modifier_group_ids: [] };
+    return { name: '', sku: '', category_id: '', description: '', price: '', status: 'active', sort_order: 0, kitchen_station_id: '', modifier_group_ids: [] };
 }
 
 async function load(): Promise<void> {
     try {
-        const [productResponse, categoryResponse, groupResponse, priceResponse] = await Promise.all([
+        const [productResponse, categoryResponse, groupResponse, priceResponse, stationResponse] = await Promise.all([
             api.get<{ data: Product[] }>('/products'),
             api.get<{ data: Category[] }>('/categories'),
             api.get<{ data: ManagedModifierGroup[] }>('/modifier-groups'),
             api.get<{ data: StorePrice[] }>('/store-prices'),
+            api.get<{ data: KitchenStation[] }>('/kitchen-stations', { include_inactive: 1 }),
         ]);
+        stations.value = stationResponse.data;
         storePrices.value = new Map(priceResponse.data.map((p) => [p.product_id, p]));
         products.value = productResponse.data;
         categories.value = categoryResponse.data;
@@ -83,6 +87,7 @@ function open(product: Product | 'new'): void {
                   price: (product.base_price_satang / 100).toFixed(2),
                   status: product.status,
                   sort_order: product.sort_order,
+                  kitchen_station_id: product.kitchen_station_id ?? '',
                   modifier_group_ids: [...(product.modifier_group_ids ?? [])],
               };
 }
@@ -101,6 +106,7 @@ async function save(): Promise<void> {
         base_price_satang: priceSatang.value,
         status: form.value.status,
         sort_order: form.value.sort_order,
+        kitchen_station_id: form.value.kitchen_station_id || null,
         modifier_group_ids: form.value.modifier_group_ids,
     };
     try {
@@ -211,6 +217,15 @@ onMounted(load);
                 <div>
                     <label for="product-sort" class="field-label">ลำดับ</label>
                     <input id="product-sort" v-model.number="form.sort_order" type="number" step="1" class="input" />
+                </div>
+                <div v-if="stations.length > 0" class="sm:col-span-2">
+                    <label for="product-station" class="field-label">ส่งครัวไปที่จุด</label>
+                    <select id="product-station" v-model="form.kitchen_station_id" class="input">
+                        <option value="">ครัวหลัก</option>
+                        <option v-for="station in stations" :key="station.id" :value="station.id" :disabled="!station.is_active && station.id !== form.kitchen_station_id">
+                            {{ station.name }}{{ station.is_active ? '' : ' (ปิด)' }}
+                        </option>
+                    </select>
                 </div>
                 <div class="sm:col-span-2">
                     <label for="product-description" class="field-label">รายละเอียด</label>

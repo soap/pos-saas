@@ -11,6 +11,8 @@ const props = defineProps<{
     isBusy: boolean;
     canUpdate: boolean;
     canVoid: boolean;
+    /** แสดงชื่อ station บนการ์ด (เมื่อจอแสดงทุกจุดรวมกัน) */
+    showStation?: boolean;
 }>();
 const emit = defineEmits<{ action: [action: 'acknowledge' | 'ready' | 'served']; cancel: [] }>();
 
@@ -56,6 +58,10 @@ const primary = computed(() => {
                 <p v-else-if="isFresh" class="text-xs font-bold text-amber-700">● ใหม่</p>
             </div>
         </header>
+
+        <p v-if="showStation" class="mx-4 mb-2 inline-block self-start rounded-lg bg-slate-200 px-2 py-0.5 text-sm font-semibold text-slate-700">
+            {{ ticket.station?.name ?? 'ครัวหลัก' }}
+        </p>
 
         <p v-if="ticket.is_addition" class="mx-4 mb-2 rounded-lg bg-violet-100 px-2 py-1 text-sm font-semibold text-violet-800">
             ＋ รายการเพิ่ม (รอบที่ {{ ticket.revision }}) — ไม่ต้องทำรายการเดิมซ้ำ

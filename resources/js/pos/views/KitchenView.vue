@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { ApiError } from '@pos/api/client';
-import type { KitchenTicket } from '@pos/api/types';
+import { ApiError, api } from '@pos/api/client';
+import type { KitchenStation, KitchenTicket } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
 import KitchenTicketCard from '@pos/components/KitchenTicketCard.vue';
 import { isSoundUnlocked, keepScreenAwake, playChime, releaseScreenAwake, unlockSound } from '@pos/lib/kitchenAlerts';
@@ -33,6 +33,7 @@ const cancelling = ref<KitchenTicket | null>(null);
 const cancelReason = ref('');
 const mobileColumn = ref<(typeof COLUMNS)[number]['status']>('queued');
 const loadError = ref<string | null>(null);
+const stations = ref<KitchenStation[]>([]);
 let clock: ReturnType<typeof setInterval> | null = null;
 
 const canUpdate = computed(() => session.can('kitchen.update'));
@@ -47,6 +48,9 @@ const isStale = computed(() => {
 });
 const lastSyncText = computed(() =>
     kitchen.lastSyncAt ? new Date(kitchen.lastSyncAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—',
+);
+const stationLabel = computed(() =>
+    kitchen.station === '' ? 'ทุกจุด' : kitchen.station === 'main' ? 'ครัวหลัก' : (stations.value.find((s) => s.id === kitchen.station)?.name ?? 'ทุกจุด'),
 );
 const serverNowMs = computed(() => nowMs.value + (session.serverNow().getTime() - Date.now()));
 
@@ -161,7 +165,16 @@ onMounted(async () => {
         return;
     }
 
+    try {
+        stations.value = (await api.get<{ data: KitchenStation[] }>('/kitchen-stations')).data;
+    } catch {
+        stations.value = [];
+    }
     kitchen.reset();
+    // station ที่จำไว้ถูกปิด/ลบไปแล้ว → กลับไปแสดงทุกจุด
+    if (kitchen.station !== '' && kitchen.station !== 'main' && !stations.value.some((s) => s.id === kitchen.station)) {
+        kitchen.setStation('');
+    }
     kitchen.start(onNewTickets);
     clock = setInterval(() => (nowMs.value = Date.now()), 10_000);
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -184,7 +197,7 @@ onBeforeUnmount(() => {
     <div class="flex h-dvh flex-col bg-slate-200">
         <header class="flex flex-wrap items-center gap-2 bg-slate-900 px-3 py-2 text-white sm:px-4">
             <div class="min-w-0 flex-1">
-                <p class="truncate text-lg font-semibold">จอครัว · {{ session.context?.store?.name ?? '…' }}</p>
+                <p class="truncate text-lg font-semibold">จอครัว · {{ session.context?.store?.name ?? '…' }} · {{ stationLabel }}</p>
                 <p class="flex items-center gap-1.5 text-xs" :class="kitchen.connection === 'live' && !isStale ? 'text-emerald-300' : 'text-rose-300'" role="status">
                     <span class="inline-block size-2 rounded-full" :class="kitchen.connection === 'live' && !isStale ? 'bg-emerald-400' : 'bg-rose-400'" aria-hidden="true" />
                     <template v-if="kitchen.connection === 'connecting'">กำลังเชื่อมต่อ…</template>
@@ -193,6 +206,17 @@ onBeforeUnmount(() => {
                     · อัปเดตล่าสุด {{ lastSyncText }}
                 </p>
             </div>
+            <select
+                v-if="stations.length > 0"
+                :value="kitchen.station"
+                class="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white ring-1 ring-slate-600"
+                aria-label="เลือกจุดในครัว"
+                @change="kitchen.setStation(($event.target as HTMLSelectElement).value)"
+            >
+                <option value="">ทุกจุด</option>
+                <option value="main">ครัวหลัก</option>
+                <option v-for="item in stations" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
             <button v-if="!soundReady" type="button" class="rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-400" @click="enableSound">
                 🔔 เปิดเสียงแจ้งเตือน
             </button>
@@ -251,6 +275,7 @@ onBeforeUnmount(() => {
                             :is-busy="busyIds.has(ticket.id)"
                             :can-update="ticket.status === 'ready' ? canServe : canUpdate"
                             :can-void="canVoid"
+                            :show-station="kitchen.station === '' && stations.length > 0"
                             @action="(action) => runAction(ticket, action)"
                             @cancel="cancelling = ticket"
                         />

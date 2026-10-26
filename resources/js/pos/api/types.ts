@@ -107,6 +107,8 @@ export interface KitchenTicket {
     order_number?: number;
     order_type?: OrderType;
     table_label?: string | null;
+    /** null = ครัวหลัก */
+    station?: { id: string; name: string } | null;
     revision: number;
     is_addition: boolean;
     status: KitchenTicketStatus;
@@ -246,6 +248,8 @@ export interface Product {
     base_price_satang: number;
     status: 'active' | 'inactive';
     sort_order: number;
+    /** null = ครัวหลัก */
+    kitchen_station_id: string | null;
     modifier_group_ids?: string[];
 }
 
@@ -329,4 +333,12 @@ export interface StorePrice {
     product_id: string;
     price_satang: number;
     is_available: boolean;
+}
+
+/** จุดทำอาหาร (เช่น เครื่องดื่ม/ย่าง) — สินค้าที่ไม่ระบุไปครัวหลัก */
+export interface KitchenStation {
+    id: string;
+    name: string;
+    sort_order: number;
+    is_active: boolean;
 }

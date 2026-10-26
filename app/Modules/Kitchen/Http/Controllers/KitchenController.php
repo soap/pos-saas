@@ -7,6 +7,7 @@ use App\Modules\Kitchen\Http\Resources\KitchenTicketResource;
 use App\Modules\Kitchen\Models\KitchenTicket;
 use App\Modules\Kitchen\Services\KitchenService;
 use App\Modules\Ordering\Models\Order;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -30,6 +31,7 @@ class KitchenController extends Controller
      * - response มี server_time ให้ใช้เป็น cursor ครั้งถัดไป (ไม่พึ่งนาฬิกา browser)
      * - แบ่งหน้าแบบ keyset ตาม (updated_at, id): ถ้า has_more=true ให้เรียกซ้ำด้วย query เดิม + cursor=next_cursor
      *   จนหมด แล้วใช้ server_time ของหน้าแรกเป็น updated_after รอบถัดไป; client เรียงการ์ดตาม sent_at เอง
+     * - station=<uuid> เฉพาะ station นั้น, station=main เฉพาะครัวหลัก (สินค้าที่ไม่ระบุ station); ไม่ส่ง = ทุก station
      */
     public function index(Request $request): JsonResponse
     {
@@ -38,6 +40,11 @@ class KitchenController extends Controller
             'updated_after' => ['nullable', 'date'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:'.self::MAX_LIMIT],
             'cursor' => ['nullable', 'string', 'max:200'],
+            'station' => ['nullable', 'string', function (string $attribute, mixed $value, Closure $fail): void {
+                if ($value !== 'main' && ! Str::isUuid((string) $value)) {
+                    $fail('station ต้องเป็น main หรือ UUID ของ station');
+                }
+            }],
         ]);
         $statuses = $request->filled('status') ? explode(',', (string) $request->query('status')) : null;
         if ($statuses !== null && array_diff($statuses, self::STATUSES)) {
@@ -46,8 +53,14 @@ class KitchenController extends Controller
         $limit = (int) $request->query('limit', self::MAX_LIMIT);
 
         $serverTime = now();
-        $q = KitchenTicket::query()->with(['items', 'order:id,order_number,order_type,table_label'])
+        $q = KitchenTicket::query()->with(['items', 'station:id,name', 'order:id,order_number,order_type,table_label'])
             ->orderBy('updated_at')->orderBy('id');
+        $station = $request->query('station');
+        if ($station === 'main') {
+            $q->whereNull('kitchen_station_id');
+        } elseif (is_string($station) && $station !== '') {
+            $q->where('kitchen_station_id', $station);
+        }
 
         if ($request->filled('cursor')) {
             [$cursorTime, $cursorId] = $this->decodeCursor((string) $request->query('cursor'));
@@ -81,14 +94,22 @@ class KitchenController extends Controller
 
     public function show(string $id): KitchenTicketResource
     {
-        return new KitchenTicketResource(KitchenTicket::query()->with(['items', 'order'])->findOrFail($id));
+        return new KitchenTicketResource(KitchenTicket::query()->with(['items', 'station', 'order'])->findOrFail($id));
     }
 
+    /**
+     * POST /orders/{id}/send-to-kitchen — 1 ticket ต่อ station
+     * data = ticket แรก (คงรูปแบบเดิมให้ client เก่า), tickets = ทุก ticket ของรอบนี้
+     */
     public function sendToKitchen(Request $request, string $orderId): JsonResponse
     {
-        $ticket = $this->kitchen->sendToKitchen(Order::query()->findOrFail($orderId), $request->user()->id);
+        $tickets = $this->kitchen->sendToKitchen(Order::query()->findOrFail($orderId), $request->user()->id)
+            ->each->load('order');
 
-        return (new KitchenTicketResource($ticket->load('order')))->response()->setStatusCode(201);
+        return response()->json([
+            'data' => new KitchenTicketResource($tickets->first()),
+            'tickets' => KitchenTicketResource::collection($tickets),
+        ], 201);
     }
 
     public function acknowledge(Request $request, string $id): KitchenTicketResource
@@ -134,6 +155,6 @@ class KitchenController extends Controller
         $ticket = KitchenTicket::query()->findOrFail($id);
         $ticket = $this->kitchen->transition($ticket, $action, $request->user()->id, $reason);
 
-        return new KitchenTicketResource($ticket->load(['items', 'order']));
+        return new KitchenTicketResource($ticket->load(['items', 'station', 'order']));
     }
 }

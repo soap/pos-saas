@@ -20,6 +20,7 @@ class ProductResource extends JsonResource
             'base_price_satang' => $this->base_price_satang,
             'status' => $this->status,
             'sort_order' => $this->sort_order,
+            'kitchen_station_id' => $this->kitchen_station_id,
             'modifier_group_ids' => $this->whenLoaded('modifierGroups', fn () => $this->modifierGroups->pluck('id')),
             'updated_at' => $this->updated_at?->toAtomString(),
         ];

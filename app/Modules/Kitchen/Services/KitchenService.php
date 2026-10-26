@@ -3,6 +3,8 @@
 namespace App\Modules\Kitchen\Services;
 
 use App\Modules\Audit\Services\AuditLogger;
+use App\Modules\Catalog\Models\Product;
+use App\Modules\Kitchen\Models\KitchenStation;
 use App\Modules\Kitchen\Models\KitchenTicket;
 use App\Modules\Kitchen\Models\KitchenTicketItem;
 use App\Modules\Ordering\Models\Order;
@@ -11,6 +13,7 @@ use App\Modules\Ordering\Services\OrderService;
 use App\Support\Errors\ApiException;
 use App\Support\Money\Satang;
 use App\Support\Outbox\Outbox;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -32,10 +35,12 @@ class KitchenService
     public function __construct(private OrderService $orders, private AuditLogger $audit) {}
 
     /**
-     * ส่งรายการที่ยังไม่เคยส่งเข้าครัวเป็น ticket revision ใหม่ (spec §6 ข้อ 8)
+     * ส่งรายการที่ยังไม่เคยส่งเข้าครัวเป็น revision ใหม่ (spec §6 ข้อ 8) — แตกเป็น ticket ละ station (ภาคผนวก D5)
      * retry ซ้ำจะไม่สร้าง revision ใหม่ เพราะไม่มีรายการค้างส่งแล้ว
+     *
+     * @return Collection<int, KitchenTicket> ครัวหลัก (ไม่ระบุ station) ก่อน แล้วตามลำดับ station
      */
-    public function sendToKitchen(Order $order, string $actorId): KitchenTicket
+    public function sendToKitchen(Order $order, string $actorId): Collection
     {
         return DB::transaction(function () use ($order, $actorId) {
             $order = $this->orders->lock($order);
@@ -49,39 +54,68 @@ class KitchenService
             }
 
             $revision = (int) KitchenTicket::query()->where('order_id', $order->id)->max('revision') + 1;
-            $ticket = KitchenTicket::create([
-                'tenant_id' => $order->tenant_id,
-                'store_id' => $order->store_id,
-                'order_id' => $order->id,
-                'revision' => $revision,
-                'status' => 'queued',
-                'sent_at' => now(),
-            ]);
-
-            /** @var OrderItem $item */
-            foreach ($items as $item) {
-                KitchenTicketItem::create([
+            $tickets = $this->groupByStation($items)->map(function (Collection $stationItems, string $stationKey) use ($order, $revision) {
+                $ticket = KitchenTicket::create([
                     'tenant_id' => $order->tenant_id,
                     'store_id' => $order->store_id,
-                    'kitchen_ticket_id' => $ticket->id,
-                    'order_item_id' => $item->id,
-                    'name_snapshot' => $item->product_name_snapshot,
-                    'quantity' => $item->quantity,
-                    'modifiers_snapshot' => $item->modifiers->map(fn ($m) => [
-                        'group' => $m->group_name_snapshot, 'name' => $m->name_snapshot, 'quantity' => $m->quantity,
-                    ])->values()->all(),
-                    'notes' => $item->notes,
+                    'order_id' => $order->id,
+                    'kitchen_station_id' => $stationKey === '' ? null : $stationKey,
+                    'revision' => $revision,
+                    'status' => 'queued',
+                    'sent_at' => now(),
+                ]);
+                /** @var OrderItem $item */
+                foreach ($stationItems as $item) {
+                    KitchenTicketItem::create([
+                        'tenant_id' => $order->tenant_id,
+                        'store_id' => $order->store_id,
+                        'kitchen_ticket_id' => $ticket->id,
+                        'order_item_id' => $item->id,
+                        'name_snapshot' => $item->product_name_snapshot,
+                        'quantity' => $item->quantity,
+                        'modifiers_snapshot' => $item->modifiers->map(fn ($m) => [
+                            'group' => $m->group_name_snapshot, 'name' => $m->name_snapshot, 'quantity' => $m->quantity,
+                        ])->values()->all(),
+                        'notes' => $item->notes,
+                    ]);
+                }
+
+                return $ticket;
+            })->values();
+
+            $this->orders->event($order, 'kitchen.ticket_sent', null, null, $actorId, [
+                'ticket_ids' => $tickets->pluck('id')->all(), 'revision' => $revision,
+            ]);
+            $this->orders->syncStatus($order, $actorId);
+            foreach ($tickets as $ticket) {
+                Outbox::record($order->tenant_id, 'kitchen_ticket', $ticket->id, 'kitchen.ticket_created', [
+                    'store_id' => $order->store_id, 'order_id' => $order->id, 'revision' => $revision, 'kitchen_station_id' => $ticket->kitchen_station_id,
                 ]);
             }
 
-            $this->orders->event($order, 'kitchen.ticket_sent', null, null, $actorId, ['ticket_id' => $ticket->id, 'revision' => $revision]);
-            $this->orders->syncStatus($order, $actorId);
-            Outbox::record($order->tenant_id, 'kitchen_ticket', $ticket->id, 'kitchen.ticket_created', [
-                'store_id' => $order->store_id, 'order_id' => $order->id, 'revision' => $revision,
-            ]);
-
-            return $ticket->load('items');
+            return $tickets->each->load(['items', 'station']);
         });
+    }
+
+    /**
+     * จัดกลุ่มรายการตาม station ปัจจุบันของสินค้า (key '' = ครัวหลัก)
+     * station ที่ปิดใช้งานหรือสินค้าที่ถูกลบ → ครัวหลัก เพื่อไม่ให้งานไปค้างที่จอที่ไม่มีคนดู
+     *
+     * @param  Collection<int, OrderItem>  $items
+     * @return Collection<string, Collection<int, OrderItem>>
+     */
+    private function groupByStation(Collection $items): Collection
+    {
+        $stationOf = Product::query()->withTrashed()->whereIn('id', $items->pluck('product_id')->filter())->pluck('kitchen_station_id', 'id');
+        $activeStations = KitchenStation::query()->where('is_active', true)->orderBy('sort_order')->orderBy('name')->pluck('id');
+
+        $groups = $items->groupBy(function (OrderItem $item) use ($stationOf, $activeStations) {
+            $stationId = $stationOf[$item->product_id] ?? null;
+
+            return $stationId !== null && $activeStations->contains($stationId) ? $stationId : '';
+        });
+
+        return $groups->sortBy(fn ($group, string $key) => $key === '' ? -1 : $activeStations->search($key));
     }
 
     /**
