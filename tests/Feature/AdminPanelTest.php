@@ -14,6 +14,8 @@ use App\Modules\Tenancy\Models\Store;
 use App\Modules\Tenancy\Models\Tenant;
 use App\Support\Tenancy\TenantContext;
 use Filament\Actions\CreateAction;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
+use Filament\Auth\Pages\Login;
 use Livewire\Livewire;
 use Tests\Support\PosWorld;
 use Tests\TestCase;
@@ -214,10 +216,49 @@ class AdminPanelTest extends TestCase
         $this->assertDatabaseMissing('plans', ['code' => 'bad']);
     }
 
-    private function platformAdmin(): User
+    public function test_platform_admin_without_mfa_is_redirected_to_mfa_setup(): void
+    {
+        $admin = $this->platformAdmin(withMfa: false);
+
+        $this->actingAs($admin)->get('/admin/tenants')->assertRedirect('/admin/multi-factor-authentication/set-up');
+    }
+
+    public function test_login_with_correct_password_alone_does_not_authenticate_admin_with_mfa(): void
+    {
+        $this->platformAdmin();
+
+        $login = Livewire::test(Login::class)
+            ->fillForm(['email' => 'admin@test.local', 'password' => 'password123'])
+            ->call('authenticate')
+            ->assertNoRedirect();
+
+        $this->assertNotNull($login->get('userUndertakingMultiFactorAuthentication'));
+        $this->assertGuest();
+    }
+
+    public function test_login_completes_with_valid_authenticator_code(): void
+    {
+        $admin = $this->platformAdmin();
+
+        Livewire::test(Login::class)
+            ->fillForm(['email' => 'admin@test.local', 'password' => 'password123'])
+            ->call('authenticate')
+            ->set('data.multiFactor.app.code', AppAuthentication::make()->getCurrentCode($admin))
+            ->call('authenticate')
+            ->assertHasNoErrors()
+            ->assertRedirect();
+
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    /** admin ตั้ง MFA แล้วเป็นค่าเริ่มต้น เพราะ panel บังคับ MFA ก่อนเข้าหน้าอื่น */
+    private function platformAdmin(bool $withMfa = true): User
     {
         $admin = User::create(['name' => 'admin', 'email' => 'admin@test.local', 'password' => 'password123', 'status' => 'active']);
-        $admin->forceFill(['is_platform_admin' => true])->save();
+        $admin->forceFill([
+            'is_platform_admin' => true,
+            'app_authentication_secret' => $withMfa ? AppAuthentication::make()->generateSecret() : null,
+        ])->save();
 
         return $admin;
     }

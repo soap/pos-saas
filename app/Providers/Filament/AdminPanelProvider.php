@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Modules\Tenancy\Http\Middleware\UsePlatformScope;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -21,6 +22,7 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 /**
  * Platform admin panel (/admin) — ทั้ง panel ทำงานข้าม tenant ผ่าน UsePlatformScope
+ * และบังคับ MFA (authenticator app) เพราะเห็นข้อมูลทุก tenant
  */
 class AdminPanelProvider extends PanelProvider
 {
@@ -31,6 +33,12 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->profile()
+            ->multiFactorAuthentication([
+                AppAuthentication::make()
+                    ->recoverable()
+                    ->brandName('POS SaaS Admin'),
+            ], isRequired: true)
             ->brandName('POS SaaS Admin')
             ->colors([
                 'primary' => Color::Amber,
