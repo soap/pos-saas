@@ -52,6 +52,14 @@ class TenantResolver
     /** @return array{by:string,value:string}|null */
     private function fromSubdomain(Request $request): ?array
     {
+        $slug = $this->subdomainSlug($request);
+
+        return $slug === null ? null : ['by' => 'slug', 'value' => $slug];
+    }
+
+    /** slug จาก {slug}.<subdomain_base> — ใช้ทั้ง API และหน้า SPA (ไม่ตรวจว่า tenant มีอยู่จริง) */
+    public function subdomainSlug(Request $request): ?string
+    {
         $base = strtolower((string) config('pos.tenancy.subdomain_base'));
         $host = strtolower($request->getHost());
         if ($base === '' || ! str_ends_with($host, '.'.$base)) {
@@ -59,12 +67,16 @@ class TenantResolver
         }
 
         $label = substr($host, 0, -strlen('.'.$base));
-        // รับเฉพาะ 1 ระดับ และข้าม subdomain ของระบบ (app., api., www. ...)
-        if (! preg_match('/^'.Tenant::SLUG_PATTERN.'$/', $label) || in_array($label, config('pos.tenancy.reserved_slugs'), true)) {
-            return null;
-        }
 
-        return ['by' => 'slug', 'value' => $label];
+        // รับเฉพาะ 1 ระดับ และข้าม subdomain ของระบบ (app., api., www. ...)
+        return $this->isUsableSlug($label) ? $label : null;
+    }
+
+    /** รูปแบบ slug ถูกต้องและไม่ใช่คำสงวนของระบบ */
+    public function isUsableSlug(string $slug): bool
+    {
+        return preg_match('/^'.Tenant::SLUG_PATTERN.'$/', $slug) === 1
+            && ! in_array($slug, config('pos.tenancy.reserved_slugs'), true);
     }
 
     /** @return array{by:string,value:string}|null */

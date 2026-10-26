@@ -1,4 +1,5 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios';
+import { posConfig } from '@pos/lib/config';
 
 /**
  * HTTP client กลางของ POS — แนบ Bearer token, X-Tenant-Id, X-Store-Id ให้ทุก request
@@ -50,11 +51,19 @@ const http = axios.create({
     timeout: 20000,
 });
 
+/** route ระดับผู้ใช้ (ไม่ผูก tenant) — ไม่เติม /t/{slug} */
+const IDENTITY_ROUTE = /^\/(auth\/|me$|tenants$|admin\/)/;
+
 http.interceptors.request.use((config) => {
     if (context.token) {
         config.headers.set('Authorization', `Bearer ${context.token}`);
     }
-    if (context.tenantId) {
+    const pinned = posConfig.tenant;
+    if (pinned?.via === 'path' && config.url && !IDENTITY_ROUTE.test(config.url)) {
+        config.url = `/t/${pinned.slug}${config.url}`;
+    }
+    // URL ปักหมุดร้านแล้ว (path/subdomain) ให้ server เลือก tenant จาก URL — ไม่ส่ง header ซ้อน
+    if (context.tenantId && !pinned) {
         config.headers.set('X-Tenant-Id', context.tenantId);
     }
     if (context.storeId) {

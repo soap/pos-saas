@@ -1,9 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { routerBase } from '@pos/lib/config';
 import { useAuthStore } from '@pos/stores/auth';
 import { useSessionStore } from '@pos/stores/session';
 
 export const router = createRouter({
-    history: createWebHistory('/pos/'),
+    history: createWebHistory(routerBase),
     routes: [
         { path: '/login', name: 'login', component: () => import('@pos/views/LoginView.vue'), meta: { guest: true } },
         { path: '/stores', name: 'stores', component: () => import('@pos/views/StoreSelectView.vue') },

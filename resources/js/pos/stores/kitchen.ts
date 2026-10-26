@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { api } from '@pos/api/client';
 import type { KitchenTicket, KitchenTicketPage, KitchenTicketStatus } from '@pos/api/types';
+import { scopedKey } from '@pos/lib/config';
 import { storage } from '@pos/lib/storage';
 
 type ConnectionState = 'connecting' | 'live' | 'offline';
@@ -11,7 +12,7 @@ const FULL_SYNC_EVERY_MS = 5 * 60 * 1000;
 const MAX_BACKOFF_MS = 30_000;
 const ACTIVE: KitchenTicketStatus[] = ['queued', 'preparing', 'ready'];
 /** station ที่จอเครื่องนี้แสดง — จำไว้ต่อเครื่อง (แท็บเล็ตแต่ละจุดในครัว) */
-const STATION_KEY = 'pos.kitchen.station';
+const STATION_KEY = scopedKey('pos.kitchen.station');
 
 /**
  * คิวงานครัวแบบ polling: full sync ครั้งแรก แล้วดึงเฉพาะที่เปลี่ยนด้วย updated_after = server_time รอบก่อน

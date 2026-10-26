@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ApiError, api } from '@pos/api/client';
 import type { ManagedStore, PaymentAccount } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
+import { shopLinks } from '@pos/lib/config';
 import { toast, toastError } from '@pos/lib/toast';
 import { useAuthStore } from '@pos/stores/auth';
 import { useSessionStore } from '@pos/stores/session';
@@ -20,6 +21,22 @@ const isSaving = ref(false);
 const assigningStoreId = ref<string | null>(null);
 const editingStore = ref<ManagedStore | null>(null);
 const editForm = ref({ name: '', status: 'active' as 'active' | 'inactive', kitchen_enabled: true, tax_mode: 'none' as 'none' | 'inclusive' });
+
+/** ลิงก์ที่ปักหมุดร้านนี้ — ให้พนักงานบุ๊กมาร์ก/ตั้งเป็นหน้าแรกของแท็บเล็ตร้าน */
+const links = computed(() => {
+    const slug = auth.tenants.find((t) => t.id === session.tenantId)?.slug;
+
+    return slug ? shopLinks(slug) : null;
+});
+
+async function copyLink(url: string): Promise<void> {
+    try {
+        await navigator.clipboard.writeText(url);
+        toast('คัดลอกลิงก์แล้ว', 'success');
+    } catch {
+        toast('คัดลอกไม่ได้ กรุณาเลือกข้อความแล้วคัดลอกเอง', 'error');
+    }
+}
 
 const canConfigurePayments = computed(() => session.can('payments.configure'));
 const activeAccounts = computed(() => accounts.value.filter((a) => a.status === 'active'));
@@ -130,6 +147,15 @@ onMounted(load);
             </div>
             <button v-if="session.can('stores.manage')" type="button" class="btn btn-primary" @click="openCreate">+ เพิ่มสาขา</button>
         </header>
+
+        <section v-if="links" class="space-y-2 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 class="font-semibold">ลิงก์ประจำร้าน</h2>
+            <p class="text-sm text-slate-500">เปิดลิงก์นี้แล้วระบบจะเข้าร้านนี้ทันที — ใช้บุ๊กมาร์กหรือตั้งเป็นหน้าแรกของแท็บเล็ตในร้าน</p>
+            <div v-for="url in [links.subdomain, links.path].filter((u): u is string => u !== null)" :key="url" class="flex items-center gap-2">
+                <code class="min-w-0 flex-1 truncate rounded bg-slate-100 px-2 py-1.5 text-sm">{{ url }}</code>
+                <button type="button" class="shrink-0 text-sm font-medium text-teal-700 hover:underline" @click="copyLink(url)">คัดลอก</button>
+            </div>
+        </section>
 
         <p v-if="isLoading" class="text-slate-500">กำลังโหลด…</p>
         <ul v-else class="space-y-3">

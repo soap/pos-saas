@@ -14,5 +14,6 @@
     </head>
     <body class="h-full bg-slate-100 font-sans text-slate-900 antialiased">
         <div id="pos-app" class="h-full"></div>
+        <script id="pos-config" type="application/json">@json($posConfig ?? [])</script>
     </body>
 </html>

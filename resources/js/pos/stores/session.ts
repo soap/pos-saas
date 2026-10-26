@@ -2,10 +2,11 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { ApiError, api, setRequestContext } from '@pos/api/client';
 import type { CashierShift, Context, StoreDetail } from '@pos/api/types';
+import { scopedKey } from '@pos/lib/config';
 import { storage } from '@pos/lib/storage';
 
-const TENANT_KEY = 'pos.tenant_id';
-const STORE_KEY = 'pos.store_id';
+const TENANT_KEY = scopedKey('pos.tenant_id');
+const STORE_KEY = scopedKey('pos.store_id');
 
 /**
  * tenant/store ที่เลือกทำงานอยู่ — การเลือกเป็นแค่ "context" สิทธิ์จริงมาจาก server (GET /context)

@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ApiError } from '@pos/api/client';
+import { pinnedSlug } from '@pos/lib/config';
 import { errorMessage } from '@pos/lib/toast';
 import { useAuthStore } from '@pos/stores/auth';
 
@@ -36,6 +37,7 @@ async function submit(): Promise<void> {
             <div>
                 <div class="mb-4 flex size-12 items-center justify-center rounded-xl bg-teal-700 text-xl font-bold text-white">P</div>
                 <h1 class="text-2xl font-semibold">เข้าสู่ระบบ POS</h1>
+                <p v-if="pinnedSlug" class="mt-1 inline-block rounded-lg bg-teal-50 px-2 py-0.5 text-sm font-medium text-teal-800">ร้าน {{ pinnedSlug }}</p>
                 <p class="mt-1 text-sm text-slate-500">ใช้อีเมลและรหัสผ่านของพนักงาน</p>
             </div>
 

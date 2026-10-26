@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { StoreSummary, TenantSummary } from '@pos/api/types';
+import { pinnedSlug } from '@pos/lib/config';
 import { toastError } from '@pos/lib/toast';
 import { useAuthStore } from '@pos/stores/auth';
 import { usePosStore } from '@pos/stores/pos';
@@ -14,7 +15,8 @@ const router = useRouter();
 
 const isLoading = ref(true);
 
-const tenantsWithStores = computed(() => auth.tenants.filter((t) => t.stores.length > 0));
+/** URL ปักหมุดร้านไว้ → แสดงเฉพาะร้านนั้น (ร้านอื่นของผู้ใช้เปิดได้จากลิงก์ของร้านนั้นเอง) */
+const tenantsWithStores = computed(() => auth.tenants.filter((t) => t.stores.length > 0 && (pinnedSlug === null || t.slug === pinnedSlug)));
 
 async function choose(tenant: TenantSummary, store: StoreSummary): Promise<void> {
     session.select(tenant.id, store.id);
@@ -58,7 +60,10 @@ onMounted(async () => {
         <p v-if="isLoading" class="text-slate-500">กำลังโหลด…</p>
 
         <p v-else-if="tenantsWithStores.length === 0" class="rounded-2xl bg-white p-6 text-slate-600 ring-1 ring-slate-200">
-            บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าถึงสาขาใด กรุณาติดต่อผู้ดูแลร้าน
+            <template v-if="pinnedSlug">
+                บัญชีนี้ไม่มีสิทธิ์ใช้งานร้าน <strong>{{ pinnedSlug }}</strong> — ตรวจสอบลิงก์ร้าน หรือให้เจ้าของร้านเพิ่มคุณเป็นพนักงาน
+            </template>
+            <template v-else>บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าถึงสาขาใด กรุณาติดต่อผู้ดูแลร้าน</template>
         </p>
 
         <section v-for="tenant in tenantsWithStores" v-else :key="tenant.id" class="mb-6">
