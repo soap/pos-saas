@@ -90,10 +90,8 @@ class TenantContext
      */
     public function runAs(Tenant $tenant, ?Store $store, callable $callback): mixed
     {
-        if ($store !== null && $store->tenant_id !== $tenant->id) {
-            throw new \InvalidArgumentException('store ไม่ได้อยู่ใน tenant นี้');
-        }
-        $previous = [$this->tenant, $this->store, $this->membership, $this->user, $this->permissions, $this->unscopedDepth];
+        $this->assertStoreOf($tenant, $store);
+        $previous = $this->snapshot();
         $this->tenant = $tenant;
         $this->store = $store;
         $this->membership = null;
@@ -103,7 +101,44 @@ class TenantContext
         try {
             return $callback();
         } finally {
-            [$this->tenant, $this->store, $this->membership, $this->user, $this->permissions, $this->unscopedDepth] = $previous;
+            $this->restore($previous);
+        }
+    }
+
+    /**
+     * เริ่ม context ของ queued job (QueueTenancy) — ในนามระบบ ไม่มี user/permission เหมือน runAs()
+     * tenant null = job ระดับ central: ล้าง context ไม่ให้ค้างจาก request/job ก่อนหน้า
+     */
+    public function enterJob(?Tenant $tenant, ?Store $store = null): void
+    {
+        if ($tenant !== null) {
+            $this->assertStoreOf($tenant, $store);
+        }
+        $this->reset();
+        $this->tenant = $tenant;
+        $this->store = $tenant !== null ? $store : null;
+    }
+
+    /**
+     * สถานะทั้งหมดของ context — ใช้คืนค่าเดิมหลังจบงานที่สลับ context ชั่วคราว
+     *
+     * @return array{0: ?Tenant, 1: ?Store, 2: ?TenantMembership, 3: ?User, 4: array<string,bool>|null, 5: int, 6: bool}
+     */
+    public function snapshot(): array
+    {
+        return [$this->tenant, $this->store, $this->membership, $this->user, $this->permissions, $this->unscopedDepth, $this->platformScope];
+    }
+
+    /** @param  array{0: ?Tenant, 1: ?Store, 2: ?TenantMembership, 3: ?User, 4: array<string,bool>|null, 5: int, 6: bool}  $snapshot */
+    public function restore(array $snapshot): void
+    {
+        [$this->tenant, $this->store, $this->membership, $this->user, $this->permissions, $this->unscopedDepth, $this->platformScope] = $snapshot;
+    }
+
+    private function assertStoreOf(Tenant $tenant, ?Store $store): void
+    {
+        if ($store !== null && $store->tenant_id !== $tenant->id) {
+            throw new \InvalidArgumentException('store ไม่ได้อยู่ใน tenant นี้');
         }
     }
 

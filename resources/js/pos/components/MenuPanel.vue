@@ -58,11 +58,12 @@ const products = computed(() => {
                 <li v-for="product in products" :key="product.id">
                     <button
                         type="button"
-                        class="flex h-full min-h-28 w-full flex-col justify-between rounded-2xl bg-white p-4 text-left shadow-sm ring-1 ring-slate-200 transition hover:ring-teal-600 active:scale-[0.98]"
+                        class="flex h-full min-h-28 w-full flex-col overflow-hidden rounded-2xl bg-white text-left shadow-sm ring-1 ring-slate-200 transition hover:ring-teal-600 active:scale-[0.98]"
                         @click="emit('pick', product)"
                     >
-                        <span class="line-clamp-2 font-medium">{{ product.name }}</span>
-                        <span class="mt-2 flex items-end justify-between gap-2">
+                        <img v-if="product.image_url" :src="product.image_url" alt="" loading="lazy" class="aspect-4/3 w-full bg-slate-100 object-cover" />
+                        <span class="line-clamp-2 px-4 pt-3 font-medium" :class="{ 'pt-4': !product.image_url }">{{ product.name }}</span>
+                        <span class="mt-auto flex items-end justify-between gap-2 px-4 pt-2 pb-3">
                             <span class="font-semibold text-teal-800 tabular-nums">{{ formatBaht(product.price_satang) }}</span>
                             <span v-if="product.modifier_groups.length > 0" class="text-xs text-slate-500">มีตัวเลือก</span>
                         </span>

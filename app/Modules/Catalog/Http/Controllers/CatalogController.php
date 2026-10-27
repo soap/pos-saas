@@ -10,6 +10,7 @@ use App\Modules\Catalog\Models\ModifierGroup;
 use App\Modules\Catalog\Models\ModifierOption;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Services\MenuService;
+use App\Modules\Catalog\Services\ProductImageService;
 use App\Support\Errors\ApiException;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 
 class CatalogController extends Controller
 {
-    public function __construct(private TenantContext $ctx, private AuditLogger $audit, private MenuService $menu) {}
+    public function __construct(private TenantContext $ctx, private AuditLogger $audit, private MenuService $menu, private ProductImageService $images) {}
 
     // ---------------- Categories ----------------
 
@@ -60,7 +61,7 @@ class CatalogController extends Controller
 
     public function products(Request $request): JsonResponse
     {
-        $q = Product::query()->with('modifierGroups:id')->orderBy('sort_order')->orderBy('name');
+        $q = Product::query()->with(['modifierGroups:id', 'media'])->orderBy('sort_order')->orderBy('name');
         if ($request->filled('category_id')) {
             $q->where('category_id', $request->query('category_id'));
         }
@@ -79,7 +80,7 @@ class CatalogController extends Controller
         });
         $this->audit->log('catalog.product_created', $product, $data);
 
-        return response()->json(['data' => new ProductResource($product->load('modifierGroups:id'))], 201);
+        return response()->json(['data' => new ProductResource($product->load(['modifierGroups:id', 'media']))], 201);
     }
 
     public function updateProduct(Request $request, string $id): JsonResponse
@@ -94,7 +95,37 @@ class CatalogController extends Controller
         // ราคาใหม่ไม่กระทบ order item เดิม เพราะ order เก็บ snapshot ไว้แล้ว
         $this->audit->log('catalog.product_updated', $product, ['before' => $before, 'after' => $data]);
 
-        return response()->json(['data' => new ProductResource($product->fresh()->load('modifierGroups:id'))]);
+        return response()->json(['data' => new ProductResource($product->fresh()->load(['modifierGroups:id', 'media']))]);
+    }
+
+    /** POST /products/{id}/images (multipart: image) — เพิ่มรูป; รูปแรกจะถูกใช้แสดงจนกว่าจะเลือกรูปอื่น */
+    public function addProductImage(Request $request, string $id): JsonResponse
+    {
+        $product = Product::query()->findOrFail($id);
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120', 'dimensions:min_width=100,min_height=100,max_width=8000,max_height=8000'],
+        ]);
+        $this->images->add($product, $request->file('image'));
+
+        return response()->json(['data' => $this->presentProduct($product)], 201);
+    }
+
+    public function removeProductImage(string $id, int $mediaId): JsonResponse
+    {
+        $product = Product::query()->findOrFail($id);
+        $this->images->remove($product, $mediaId);
+
+        return response()->json(['data' => $this->presentProduct($product)]);
+    }
+
+    /** PUT /products/{id}/primary-image — เลือกรูปที่ใช้แสดงในเมนู */
+    public function setPrimaryProductImage(Request $request, string $id): JsonResponse
+    {
+        $product = Product::query()->findOrFail($id);
+        $data = $request->validate(['media_id' => ['required', 'integer']]);
+        $this->images->setPrimary($product, $data['media_id']);
+
+        return response()->json(['data' => $this->presentProduct($product)]);
     }
 
     /** PUT /products/{id}/store-price — ราคา/การขายเฉพาะสาขา (ต้องมี X-Store-Id) */
@@ -262,6 +293,11 @@ class CatalogController extends Controller
             'modifier_group_ids' => ['sometimes', 'array'],
             'modifier_group_ids.*' => ['uuid'],
         ]);
+    }
+
+    private function presentProduct(Product $product): ProductResource
+    {
+        return new ProductResource($product->fresh()->load(['modifierGroups:id', 'media']));
     }
 
     private function syncGroups(Product $product, ?array $groupIds): void

@@ -56,6 +56,9 @@ $tenantRoutes = function () {
     Route::get('products', [CatalogController::class, 'products'])->middleware('perm:catalog.view');
     Route::post('products', [CatalogController::class, 'createProduct'])->middleware('perm:catalog.manage');
     Route::patch('products/{id}', [CatalogController::class, 'updateProduct'])->middleware('perm:catalog.manage');
+    Route::post('products/{id}/images', [CatalogController::class, 'addProductImage'])->middleware('perm:catalog.manage');
+    Route::delete('products/{id}/images/{mediaId}', [CatalogController::class, 'removeProductImage'])->whereNumber('mediaId')->middleware('perm:catalog.manage');
+    Route::put('products/{id}/primary-image', [CatalogController::class, 'setPrimaryProductImage'])->middleware('perm:catalog.manage');
     Route::get('modifier-groups', [CatalogController::class, 'modifierGroups'])->middleware('perm:catalog.view');
     Route::post('modifier-groups', [CatalogController::class, 'createModifierGroup'])->middleware('perm:catalog.manage');
     // store:optional → role ระดับสาขา (เช่น ครัว) ใช้สิทธิ์ของสาขาที่ส่ง X-Store-Id มาได้

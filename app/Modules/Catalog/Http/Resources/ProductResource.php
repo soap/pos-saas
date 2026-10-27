@@ -3,6 +3,7 @@
 namespace App\Modules\Catalog\Http\Resources;
 
 use App\Modules\Catalog\Models\Product;
+use App\Modules\Catalog\Services\ProductImageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +23,7 @@ class ProductResource extends JsonResource
             'sort_order' => $this->sort_order,
             'kitchen_station_id' => $this->kitchen_station_id,
             'modifier_group_ids' => $this->whenLoaded('modifierGroups', fn () => $this->modifierGroups->pluck('id')),
+            'images' => $this->whenLoaded('media', fn () => app(ProductImageService::class)->present($this->resource)),
             'updated_at' => $this->updated_at?->toAtomString(),
         ];
     }

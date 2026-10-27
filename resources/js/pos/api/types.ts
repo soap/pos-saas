@@ -70,6 +70,8 @@ export interface MenuProduct {
     name: string;
     description: string | null;
     price_satang: number;
+    /** รูปที่ตั้งให้แสดง (ขนาดย่อ, signed URL) — null = ไม่มีรูป */
+    image_url: string | null;
     modifier_groups: ModifierGroup[];
 }
 
@@ -251,6 +253,16 @@ export interface Product {
     /** null = ครัวหลัก */
     kitchen_station_id: string | null;
     modifier_group_ids?: string[];
+    images?: ProductImage[];
+}
+
+export interface ProductImage {
+    id: number;
+    name: string;
+    /** รูปที่แสดงในเมนู (ถ้าไม่ได้เลือกไว้ = รูปแรก) */
+    is_primary: boolean;
+    thumb_url: string;
+    preview_url: string;
 }
 
 export interface ManagedModifierGroup {

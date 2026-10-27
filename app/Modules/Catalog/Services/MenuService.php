@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
  */
 class MenuService
 {
+    public function __construct(private ProductImageService $images) {}
+
     /** @return array{price:int, available:bool, tax_profile:string} */
     public function storePricing(Store $store, Product $product): array
     {
@@ -40,7 +42,7 @@ class MenuService
 
         $products = Product::query()
             ->where('status', 'active')
-            ->with(['modifierGroups.options' => fn ($q) => $q->where('is_active', true)])
+            ->with(['media', 'modifierGroups.options' => fn ($q) => $q->where('is_active', true)])
             ->orderBy('sort_order')->orderBy('name')
             ->get()
             ->filter(fn (Product $p) => ! isset($overrides[$p->id]) || $overrides[$p->id]->is_available)
@@ -67,6 +69,7 @@ class MenuService
             'name' => $p->name,
             'description' => $p->description,
             'price_satang' => $override ? (int) $override->price_satang : $p->base_price_satang,
+            'image_url' => $this->images->displayThumbUrl($p),
             'modifier_groups' => $this->presentGroups($p->modifierGroups),
         ];
     }

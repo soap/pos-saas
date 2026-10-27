@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ApiError, api } from '@pos/api/client';
-import type { Category, KitchenStation, ManagedModifierGroup, Product, StorePrice } from '@pos/api/types';
+import type { Category, KitchenStation, ManagedModifierGroup, Product, ProductImage, StorePrice } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
 import StorePriceDialog from '@pos/components/StorePriceDialog.vue';
 import { formatBaht, parseBahtToSatang } from '@pos/lib/money';
@@ -35,6 +35,11 @@ const editing = ref<Product | 'new' | null>(null);
 const form = ref<ProductForm>(emptyForm());
 const formError = ref<ApiError | null>(null);
 const isSaving = ref(false);
+const isUploading = ref(false);
+const busyImageId = ref<number | null>(null);
+
+/** ตรงกับ Product::MAX_IMAGES ฝั่ง server */
+const MAX_IMAGES = 10;
 
 const categoryName = computed(() => new Map(categories.value.map((c) => [c.id, c.name])));
 const filtered = computed(() => {
@@ -47,6 +52,11 @@ const filtered = computed(() => {
     );
 });
 const priceSatang = computed(() => parseBahtToSatang(form.value.price));
+const editingImages = computed<ProductImage[]>(() => (editing.value && editing.value !== 'new' ? (editing.value.images ?? []) : []));
+
+function displayThumb(product: Product): string | null {
+    return product.images?.find((i) => i.is_primary)?.thumb_url ?? null;
+}
 
 function emptyForm(): ProductForm {
     return { name: '', sku: '', category_id: '', description: '', price: '', status: 'active', sort_order: 0, kitchen_station_id: '', modifier_group_ids: [] };
@@ -129,6 +139,60 @@ async function save(): Promise<void> {
     }
 }
 
+/** แทนสินค้าที่เปลี่ยนรูปในรายการและในหน้าต่างแก้ไข (ไม่แตะฟอร์มที่กำลังแก้) */
+function applyProduct(updated: Product): void {
+    products.value = products.value.map((p) => (p.id === updated.id ? updated : p));
+    if (editing.value && editing.value !== 'new' && editing.value.id === updated.id) {
+        editing.value = updated;
+    }
+}
+
+async function uploadImages(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    if (!editing.value || editing.value === 'new' || files.length === 0) {
+        return;
+    }
+    const productId = editing.value.id;
+    isUploading.value = true;
+    try {
+        for (const file of files) {
+            const body = new FormData();
+            body.append('image', file);
+            applyProduct((await api.post<{ data: Product }>(`/products/${productId}/images`, body)).data);
+        }
+        toast('อัปโหลดรูปแล้ว', 'success');
+    } catch (e) {
+        toastError(e);
+    } finally {
+        isUploading.value = false;
+    }
+}
+
+async function runImageAction(image: ProductImage, action: () => Promise<{ data: Product }>): Promise<void> {
+    busyImageId.value = image.id;
+    try {
+        applyProduct((await action()).data);
+    } catch (e) {
+        toastError(e);
+    } finally {
+        busyImageId.value = null;
+    }
+}
+
+function setPrimaryImage(productId: string, image: ProductImage): Promise<void> {
+    return runImageAction(image, () => api.put(`/products/${productId}/primary-image`, { media_id: image.id }));
+}
+
+function removeImage(productId: string, image: ProductImage): Promise<void> {
+    if (!confirm('ลบรูปนี้?')) {
+        return Promise.resolve();
+    }
+
+    return runImageAction(image, () => api.delete(`/products/${productId}/images/${image.id}`));
+}
+
 onMounted(load);
 </script>
 
@@ -156,6 +220,8 @@ onMounted(load);
         <ul v-else class="divide-y divide-slate-100 overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
             <li v-for="product in filtered" :key="product.id" class="flex items-stretch">
                 <button type="button" class="flex min-w-0 flex-1 items-center gap-4 px-4 py-3 text-left hover:bg-slate-50" @click="open(product)">
+                    <img v-if="displayThumb(product)" :src="displayThumb(product)!" alt="" loading="lazy" class="size-12 shrink-0 rounded-lg bg-slate-100 object-cover" />
+                    <span v-else class="size-12 shrink-0 rounded-lg bg-slate-100" aria-hidden="true" />
                     <span class="min-w-0 flex-1">
                         <span class="block font-medium" :class="{ 'text-slate-400': product.status === 'inactive' }">{{ product.name }}</span>
                         <span class="block text-sm text-slate-500">
@@ -227,6 +293,48 @@ onMounted(load);
                         </option>
                     </select>
                 </div>
+                <fieldset class="sm:col-span-2">
+                    <legend class="field-label">รูปสินค้า</legend>
+                    <p v-if="editing === 'new'" class="text-sm text-slate-500">บันทึกสินค้าก่อน แล้วเปิดแก้ไขเพื่อเพิ่มรูป</p>
+                    <template v-else>
+                        <ul v-if="editingImages.length > 0" class="mb-2 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                            <li
+                                v-for="image in editingImages"
+                                :key="image.id"
+                                class="relative overflow-hidden rounded-xl ring-2"
+                                :class="[image.is_primary ? 'ring-teal-600' : 'ring-slate-200', { 'opacity-50': busyImageId === image.id }]"
+                            >
+                                <img :src="image.thumb_url" :alt="image.name" class="aspect-square w-full bg-slate-100 object-cover" />
+                                <span v-if="image.is_primary" class="absolute top-1 left-1 rounded bg-teal-700 px-1.5 py-0.5 text-xs text-white">ใช้แสดง</span>
+                                <div class="flex">
+                                    <button
+                                        v-if="!image.is_primary"
+                                        type="button"
+                                        class="flex-1 py-1.5 text-xs hover:bg-slate-50"
+                                        :disabled="busyImageId !== null"
+                                        @click="setPrimaryImage(editing.id, image)"
+                                    >
+                                        ใช้แสดง
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="flex-1 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
+                                        :disabled="busyImageId !== null"
+                                        :aria-label="`ลบรูป ${image.name}`"
+                                        @click="removeImage(editing.id, image)"
+                                    >
+                                        ลบ
+                                    </button>
+                                </div>
+                            </li>
+                        </ul>
+                        <label v-if="editingImages.length < MAX_IMAGES" class="btn btn-secondary inline-flex cursor-pointer text-sm" :class="{ 'pointer-events-none opacity-60': isUploading }">
+                            {{ isUploading ? 'กำลังอัปโหลด…' : '+ เพิ่มรูป' }}
+                            <input type="file" accept="image/jpeg,image/png,image/webp" multiple class="sr-only" :disabled="isUploading" @change="uploadImages" />
+                        </label>
+                        <p class="mt-1 text-xs text-slate-500">JPG/PNG/WebP ไม่เกิน 5 MB · สูงสุด {{ MAX_IMAGES }} รูป · แตะ "ใช้แสดง" เพื่อเลือกรูปที่แสดงในเมนู</p>
+                    </template>
+                </fieldset>
                 <div class="sm:col-span-2">
                     <label for="product-description" class="field-label">รายละเอียด</label>
                     <textarea id="product-description" v-model="form.description" rows="2" maxlength="2000" class="input" />
