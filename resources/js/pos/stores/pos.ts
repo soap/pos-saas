@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref, watch } from 'vue';
 import { api, newIdempotencyKey } from '@pos/api/client';
-import type { DiningTable, Menu, MenuProduct, ModifierOption, Order, OrderItemInput, OrderType } from '@pos/api/types';
+import type { DiningTable, KitchenTicket, KitchenTicketStatus, Menu, MenuProduct, ModifierOption, Order, OrderItemInput, OrderType } from '@pos/api/types';
 import { useSessionStore } from '@pos/stores/session';
 
 export interface DraftLine {
@@ -41,6 +41,20 @@ export const usePosStore = defineStore('pos', () => {
 
         return new Set(activeItems.value.filter((item) => !sent.has(item.id)).map((item) => item.id));
     });
+    /** สถานะครัวของแต่ละรายการ (order_item_id → สถานะ ticket ที่ยังไม่ถูกยกเลิก) */
+    const itemKitchenStatus = computed(() => {
+        const statuses = new Map<string, KitchenTicketStatus>();
+        for (const ticket of order.value?.kitchen_tickets ?? []) {
+            if (ticket.status !== 'cancelled') {
+                ticket.items?.forEach((i) => statuses.set(i.order_item_id, ticket.status));
+            }
+        }
+
+        return statuses;
+    });
+    const readyTickets = computed<KitchenTicket[]>(() => order.value?.kitchen_tickets?.filter((t) => t.status === 'ready') ?? []);
+    /** ยังมีงานค้างในครัว — หน้าขายควรดึงสถานะใหม่เป็นระยะ */
+    const hasPendingKitchenWork = computed(() => order.value?.kitchen_tickets?.some((t) => ['queued', 'preparing', 'ready'].includes(t.status)) ?? false);
     const selectedTable = computed(() => tables.value.find((t) => t.id === selectedTableId.value) ?? null);
     const isOrderOpen = computed(() => order.value !== null && !['completed', 'cancelled'].includes(order.value.status));
 
@@ -127,9 +141,21 @@ export const usePosStore = defineStore('pos', () => {
     }
 
     async function refreshOrder(): Promise<void> {
-        if (order.value) {
-            order.value = (await api.get<{ data: Order }>(`/orders/${order.value.id}`)).data;
+        const id = order.value?.id;
+        if (!id) {
+            return;
         }
+        const fresh = (await api.get<{ data: Order }>(`/orders/${id}`)).data;
+        // ผู้ใช้อาจสลับไปออเดอร์อื่นระหว่างรอ — อย่าทับด้วยออเดอร์เดิม
+        if (order.value?.id === id) {
+            order.value = fresh;
+        }
+    }
+
+    /** หน้าร้านยืนยันว่าเสิร์ฟรายการที่ครัวทำเสร็จแล้ว */
+    async function markServed(): Promise<void> {
+        await Promise.all(readyTickets.value.map((t) => api.post(`/kitchen/tickets/${t.id}/served`, {})));
+        await refreshOrder();
     }
 
     async function openOrder(id: string): Promise<void> {
@@ -205,6 +231,9 @@ export const usePosStore = defineStore('pos', () => {
         draftTotalSatang,
         activeItems,
         unsentItemIds,
+        itemKitchenStatus,
+        readyTickets,
+        hasPendingKitchenWork,
         isOrderOpen,
         lineTotal,
         loadMenu,
@@ -214,6 +243,7 @@ export const usePosStore = defineStore('pos', () => {
         submitDraft,
         sendToKitchen,
         refreshOrder,
+        markServed,
         openOrder,
         loadOpenOrders,
         loadTables,

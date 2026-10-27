@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import type { OrderItem, OrderStatus } from '@pos/api/types';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import type { KitchenTicketStatus, OrderItem, OrderStatus } from '@pos/api/types';
 import { formatBaht } from '@pos/lib/money';
 import { toast, toastError } from '@pos/lib/toast';
 import { usePosStore } from '@pos/stores/pos';
@@ -10,8 +10,13 @@ const emit = defineEmits<{ pay: []; discount: []; cancel: []; receipt: []; moveT
 
 const pos = usePosStore();
 const session = useSessionStore();
+/** ครัวอัปเดตสถานะจากอีกเครื่อง — ดึงออเดอร์ใหม่เป็นระยะขณะยังมีงานค้างในครัว */
+const REFRESH_MS = 10_000;
+
 const busyItemId = ref<string | null>(null);
 const isSending = ref(false);
+const isServing = ref(false);
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const statusLabels: Record<OrderStatus, string> = {
     draft: 'ยังไม่ส่งครัว',
@@ -23,13 +28,30 @@ const statusLabels: Record<OrderStatus, string> = {
     cancelled: 'ยกเลิกแล้ว',
 };
 
+const kitchenStatusBadges: Partial<Record<KitchenTicketStatus, { label: string; class: string }>> = {
+    queued: { label: 'ส่งคำสั่งแล้ว', class: 'bg-sky-100 text-sky-800' },
+    preparing: { label: 'กำลังทำ', class: 'bg-orange-100 text-orange-800' },
+    ready: { label: 'พร้อมเสิร์ฟ', class: 'bg-emerald-100 text-emerald-800' },
+    served: { label: 'เสิร์ฟแล้ว', class: 'bg-slate-100 text-slate-600' },
+};
+
 const order = computed(() => pos.order);
 const balanceDue = computed(() => order.value?.balance_due_satang ?? 0);
 const canEditItems = computed(() => pos.isOrderOpen && session.can('orders.create'));
 const canPay = computed(() => pos.isOrderOpen && balanceDue.value > 0 && pos.lines.length === 0 && session.can('payments.create'));
+const canMarkServed = computed(
+    () => pos.isOrderOpen && pos.readyTickets.length > 0 && (session.can('orders.create') || session.can('kitchen.update')),
+);
+const readyItemCount = computed(() => pos.readyTickets.reduce((sum, t) => sum + (t.items?.reduce((n, i) => n + i.quantity, 0) ?? 0), 0));
 const canSendToKitchen = computed(
     () => pos.isOrderOpen && session.kitchenEnabled && pos.unsentItemIds.size > 0 && pos.lines.length === 0 && session.can('orders.create'),
 );
+
+function kitchenBadge(item: OrderItem): { label: string; class: string } | null {
+    const status = pos.itemKitchenStatus.get(item.id);
+
+    return status ? (kitchenStatusBadges[status] ?? null) : null;
+}
 
 function modifiersText(item: OrderItem): string {
     return item.modifiers.map((m) => m.name).join(', ');
@@ -73,6 +95,39 @@ async function sendToKitchen(): Promise<void> {
         isSending.value = false;
     }
 }
+
+async function markServed(): Promise<void> {
+    isServing.value = true;
+    try {
+        await pos.markServed();
+        toast('บันทึกการเสิร์ฟแล้ว', 'success');
+    } catch (e) {
+        toastError(e);
+    } finally {
+        isServing.value = false;
+    }
+}
+
+async function refreshKitchenStatus(): Promise<void> {
+    const isBusy = busyItemId.value !== null || isSending.value || isServing.value || pos.isSubmitting;
+    if (isBusy || !pos.isOrderOpen || !pos.hasPendingKitchenWork || document.hidden) {
+        return;
+    }
+    try {
+        await pos.refreshOrder();
+    } catch {
+        // เน็ตสะดุดชั่วคราว — รอบถัดไปลองใหม่
+    }
+}
+
+onMounted(() => {
+    refreshTimer = setInterval(refreshKitchenStatus, REFRESH_MS);
+});
+onBeforeUnmount(() => {
+    if (refreshTimer !== null) {
+        clearInterval(refreshTimer);
+    }
+});
 </script>
 
 <template>
@@ -134,6 +189,9 @@ async function sendToKitchen(): Promise<void> {
                         <p v-if="item.notes" class="text-sm text-amber-700">หมายเหตุ: {{ item.notes }}</p>
                         <span v-if="session.kitchenEnabled && pos.unsentItemIds.has(item.id)" class="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
                             ยังไม่ส่งครัว
+                        </span>
+                        <span v-else-if="kitchenBadge(item)" class="mt-1 inline-block rounded px-1.5 py-0.5 text-xs font-medium" :class="kitchenBadge(item)!.class">
+                            {{ kitchenBadge(item)!.label }}
                         </span>
                     </div>
                     <div class="flex flex-col items-end gap-1">
@@ -207,6 +265,9 @@ async function sendToKitchen(): Promise<void> {
             </button>
             <button v-if="canSendToKitchen" type="button" class="btn btn-secondary w-full" :disabled="isSending" @click="sendToKitchen">
                 {{ isSending ? 'กำลังส่ง…' : 'ส่งครัว' }}
+            </button>
+            <button v-if="canMarkServed" type="button" class="btn btn-secondary w-full text-emerald-800 ring-emerald-300" :disabled="isServing" @click="markServed">
+                {{ isServing ? 'กำลังบันทึก…' : `เสิร์ฟแล้ว (${readyItemCount} รายการพร้อมเสิร์ฟ)` }}
             </button>
             <button v-if="canPay" type="button" class="btn btn-primary w-full text-lg" @click="emit('pay')">ชำระเงิน · {{ formatBaht(balanceDue) }}</button>
 
