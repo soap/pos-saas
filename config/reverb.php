@@ -82,7 +82,17 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => ['*'],
+                // host ของหน้าเว็บที่เปิด WebSocket ได้ (Str::is รองรับ *): โดเมนหลัก, subdomain ของร้าน
+                // และ frontend แยกโดเมนใน POS_CORS_ALLOWED_ORIGINS — ตรงกับ config/cors.php
+                'allowed_origins' => array_values(array_unique(array_filter([
+                    parse_url((string) env('APP_URL'), PHP_URL_HOST),
+                    env('POS_TENANT_BASE_DOMAIN') ?: null,
+                    env('POS_TENANT_BASE_DOMAIN') ? '*.'.env('POS_TENANT_BASE_DOMAIN') : null,
+                    ...array_map(
+                        fn (string $origin) => parse_url(trim($origin), PHP_URL_HOST),
+                        explode(',', (string) env('POS_CORS_ALLOWED_ORIGINS', '')),
+                    ),
+                ]))),
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_connections' => env('REVERB_APP_MAX_CONNECTIONS'),

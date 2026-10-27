@@ -104,6 +104,8 @@ php artisan reverb:start      # WebSocket server (composer run dev รันใ�
 | `MOCK_QR_WEBHOOK_SECRET`, `MOCK_QR_ACCOUNT_KEY` | — | ใช้กับ mock provider เท่านั้น |
 | `POS_KDS_POLL_SECONDS` / `POS_KDS_LATE_MINUTES` | `3` / `15` | รอบ polling ของจอครัว / นาทีที่ถือว่างานล่าช้า |
 | `MEDIA_DISK` | `local` | disk (private) ของรูปสินค้า — `local` = `storage/app/private`, production ใช้ `s3` ได้ |
+| `POS_CORS_ALLOWED_ORIGINS` | ว่าง (ไม่เปิด CORS) | origin ของ frontend ที่อยู่คนละโดเมนกับ API คั่นด้วย comma เช่น `https://app.example.com` (SPA `/pos` เป็น same-origin ไม่ต้องใส่) |
+| `POS_REALTIME_HOST` / `_PORT` / `_SCHEME` | ค่า `REVERB_*` | ที่อยู่ Reverb ที่ browser ต่อเข้า (เช่นหลัง reverse proxy) — Reverb รับ WebSocket จาก host ของ `APP_URL`, subdomain ของร้าน และ `POS_CORS_ALLOWED_ORIGINS` เท่านั้น |
 
 ---
 
@@ -117,10 +119,10 @@ php artisan reverb:start      # WebSocket server (composer run dev รันใ�
 
 หน้าจอ:
 
-- **หน้าขาย** — ผังโต๊ะ (รีเฟรชทุก 15 วินาที), เมนูพร้อมรูปสินค้า, ตะกร้า, ส่งครัว, ส่วนลด, ย้ายโต๊ะ, ยกเลิกออเดอร์,
+- **หน้าขาย** — ผังโต๊ะ (อัปเดตทันทีผ่าน Reverb, สำรองด้วยการรีเฟรชทุก 15 วินาที), เมนูพร้อมรูปสินค้า, ตะกร้า, ส่งครัว, ส่วนลด, ย้ายโต๊ะ, ยกเลิกออเดอร์,
   ชำระเงินสด/QR, คืนเงิน, ใบเสร็จ, เปิด/ปิดกะ
   - แสดงสถานะครัวรายรายการ: ยังไม่ส่งครัว → ส่งคำสั่งแล้ว (`queued`) → กำลังทำ (`preparing`) → พร้อมเสิร์ฟ (`ready`) → เสิร์ฟแล้ว (`served`)
-  - ดึงออเดอร์ใหม่ทุก 10 วินาทีขณะยังมีงานค้างในครัว; พนักงานหน้าร้านกด "เสิร์ฟแล้ว" ได้เอง (ออเดอร์ปิดได้เมื่อทุก ticket `served`)
+  - ดึงออเดอร์ใหม่ทันทีเมื่อครัวเปลี่ยนสถานะ (สำรองด้วย polling ทุก 10 วินาทีขณะยังมีงานค้างในครัว); พนักงานหน้าร้านกด "เสิร์ฟแล้ว" ได้เอง (ออเดอร์ปิดได้เมื่อทุก ticket `served`)
 - **จอครัว** (`/pos/kitchen`) — การ์ดงานแยกตามจุดในครัว (station), เสียงแจ้งเตือนงานใหม่ (ต้องแตะเปิดเสียงก่อน), เตือนงานเกินเวลา, Wake Lock กันจอดับ
 - **หลังร้าน** (`/pos/manage`) — รายงานยอดขาย, สินค้า (ราคาสาขา, รูปสินค้า), หมวดหมู่, ตัวเลือกเสริม, จุดในครัว, โต๊ะ, สาขา, พนักงาน, บัญชีรับเงิน QR
   (เมนูแสดงตามสิทธิ์ของผู้ใช้)
@@ -372,4 +374,3 @@ $ctx->runAs($tenant, $store, function () use ($x) { SomeJob::dispatch($x); });  
   ถ้าต้องการลดโหลด server ให้เปลี่ยนไปใช้ presigned URL ของ S3 / CDN
 - รอบชำระค่า subscription (`subscription_payments`) — มีตารางแล้ว ยังไม่มี flow เก็บเงิน
 - Retention policy ของ webhook payload / audit log, backup + restore test, structured logging / alert
-- CORS allowlist สำหรับโดเมน frontend (`php artisan config:publish cors` แล้วแก้ `allowed_origins`) — จำเป็นเมื่อ SPA อยู่คนละโดเมนกับ API
