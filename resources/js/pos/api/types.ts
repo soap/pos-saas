@@ -354,3 +354,29 @@ export interface KitchenStation {
     sort_order: number;
     is_active: boolean;
 }
+
+/** ใบแจ้งหนี้ค่าแพ็กเกจ — qr_* มีค่าเมื่อมี QR PromptPay ที่ยังสแกนได้ */
+export interface BillingInvoice {
+    id: string;
+    status: 'pending' | 'paid' | 'void';
+    amount_satang: number;
+    billing_period_start: string;
+    billing_period_end: string;
+    paid_at: string | null;
+    qr_image_url: string | null;
+    qr_expires_at: string | null;
+}
+
+export interface BillingSummary {
+    subscription: {
+        status: 'trialing' | 'active' | 'past_due' | 'cancelled';
+        plan: { code: string; name: string; price_satang: number; billing_interval: 'month' | 'year' };
+        trial_ends_at: string | null;
+        /** null = ไม่มีรอบเก็บเงิน */
+        paid_through: string | null;
+        /** ถ้ายังไม่จ่ายจะถูกระงับเมื่อถึงเวลานี้ */
+        grace_ends_at: string | null;
+    } | null;
+    usable: boolean;
+    invoices: BillingInvoice[];
+}

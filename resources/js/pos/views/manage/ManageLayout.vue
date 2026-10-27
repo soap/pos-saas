@@ -25,6 +25,8 @@ const NAV = [
     { name: 'manage.stores', label: 'สาขา', permission: 'stores.view' },
     { name: 'manage.members', label: 'พนักงาน', permission: 'members.manage' },
     { name: 'manage.payment-accounts', label: 'บัญชีรับเงิน QR', permission: 'payments.configure' },
+    // หน้าแยกนอก layout (เปิดได้แม้ร้านถูกระงับ) — อยู่ท้ายสุดเพื่อไม่ถูกเลือกเป็นหน้าแรกของ /manage
+    { name: 'billing', label: 'แพ็กเกจและการชำระเงิน', permission: 'billing.manage' },
 ] as const;
 
 const items = computed(() => NAV.filter((item) => session.can(item.permission)));

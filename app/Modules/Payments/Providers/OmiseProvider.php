@@ -61,7 +61,13 @@ class OmiseProvider implements PaymentProviderInterface
 
     public function getPaymentStatus(PaymentAttempt $attempt): ProviderPaymentStatus
     {
-        $charge = $this->omise()->charge()->find($attempt->provider_reference)->throw();
+        return $this->getPaymentStatusByReference($attempt->provider_reference);
+    }
+
+    /** สถานะ charge ตาม id — ใช้ทั้ง payment ของร้านและใบแจ้งหนี้ค่าแพ็กเกจ (ซึ่งไม่มี PaymentAttempt) */
+    public function getPaymentStatusByReference(string $chargeId): ProviderPaymentStatus
+    {
+        $charge = $this->omise()->charge()->find($chargeId)->throw();
 
         return new ProviderPaymentStatus(
             self::STATUS_MAP[$charge->status] ?? 'pending',

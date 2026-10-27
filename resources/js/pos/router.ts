@@ -27,6 +27,8 @@ export const router = createRouter({
                 { path: 'payment-accounts', name: 'manage.payment-accounts', component: () => import('@pos/views/manage/PaymentAccountsView.vue') },
             ],
         },
+        // นอก ManageLayout: layout โหลด /context ซึ่งได้ 402 เมื่อร้านถูกระงับ แต่หน้านี้ต้องเปิดได้เพื่อจ่าย
+        { path: '/billing', name: 'billing', component: () => import('@pos/views/BillingView.vue'), meta: { needsStore: true } },
         { path: '/receipt/:orderId', name: 'receipt', component: () => import('@pos/views/ReceiptView.vue'), props: true, meta: { needsStore: true } },
         { path: '/:pathMatch(.*)*', redirect: '/' },
     ],

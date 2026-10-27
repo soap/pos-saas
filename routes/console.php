@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Billing\Services\BillingService;
 use App\Modules\Payments\Models\PaymentAttempt;
 use App\Modules\Payments\Services\PaymentProviderRegistry;
 use App\Modules\Payments\Services\WebhookService;
@@ -38,5 +39,11 @@ Artisan::command('idempotency:prune', function () {
     $this->info("deleted {$n}");
 })->purpose('ลบ idempotency keys ที่หมดอายุ');
 
+Artisan::command('billing:cycle', function (BillingService $billing) {
+    $result = $billing->runCycle();
+    $this->info("invoiced={$result['invoiced']} past_due={$result['past_due']}");
+})->purpose('ออกใบแจ้งหนี้ค่าแพ็กเกจรอบถัดไป และเปลี่ยนร้านที่เลยวันจ่ายเป็น past_due');
+
 Schedule::command('outbox:publish')->everyMinute()->withoutOverlapping();
+Schedule::command('billing:cycle')->hourly()->withoutOverlapping();
 Schedule::command('idempotency:prune')->hourly();

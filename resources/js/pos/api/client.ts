@@ -23,6 +23,13 @@ export function setUnauthenticatedHandler(handler: () => void): void {
     onUnauthenticated = handler;
 }
 
+let onSubscriptionInactive: () => void = () => {};
+
+/** แพ็กเกจหมดอายุ/ถูกระงับ (402) — พาไปหน้าชำระค่าแพ็กเกจ */
+export function setSubscriptionInactiveHandler(handler: () => void): void {
+    onSubscriptionInactive = handler;
+}
+
 export class ApiError extends Error {
     constructor(
         public readonly status: number,
@@ -100,6 +107,9 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
         const apiError = toApiError(error);
         if (apiError.status === 401 && context.token) {
             onUnauthenticated();
+        }
+        if (apiError.status === 402 && apiError.code === 'subscription_inactive') {
+            onSubscriptionInactive();
         }
         throw apiError;
     }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Billing\Http\Controllers\BillingController;
 use App\Modules\Cashier\Http\Controllers\CashierController;
 use App\Modules\Catalog\Http\Controllers\CatalogController;
 use App\Modules\Devices\Http\Controllers\DeviceController;
@@ -139,7 +140,14 @@ $tenantRoutes = function () {
     });
 };
 
-Route::prefix('v1')->group(function () use ($tenantRoutes) {
+// ค่าแพ็กเกจ — ใช้ tenant:billing (ไม่ตรวจ subscription) ให้ร้านที่ถูกระงับยังจ่ายได้
+$billingRoutes = function () {
+    Route::get('billing', [BillingController::class, 'show'])->middleware('perm:billing.manage');
+    Route::post('billing/invoices/{id}/pay', [BillingController::class, 'pay'])->middleware(['perm:billing.manage', 'throttle:payments']);
+    Route::get('billing/invoices/{id}', [BillingController::class, 'invoiceStatus'])->middleware(['perm:billing.manage', 'throttle:payments']);
+};
+
+Route::prefix('v1')->group(function () use ($tenantRoutes, $billingRoutes) {
 
     // ---------- Public ----------
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
@@ -147,8 +155,10 @@ Route::prefix('v1')->group(function () use ($tenantRoutes) {
     Route::post('webhooks/payments/{provider}/{account?}', [PaymentController::class, 'webhook'])
         ->where(['provider' => '[a-z0-9_]+', 'account' => 'pa_[a-z0-9]{32}'])->middleware('throttle:webhooks')
         ->name('webhooks.payments');
+    // ค่าแพ็กเกจที่ร้านจ่ายให้แพลตฟอร์ม (บัญชี Omise ของแพลตฟอร์ม)
+    Route::post('webhooks/billing/omise', [BillingController::class, 'webhook'])->middleware('throttle:webhooks')->name('webhooks.billing');
 
-    Route::middleware('auth:sanctum')->group(function () use ($tenantRoutes) {
+    Route::middleware('auth:sanctum')->group(function () use ($tenantRoutes, $billingRoutes) {
 
         // ---------- Session / Identity ----------
         Route::post('auth/logout', [AuthController::class, 'logout']);
@@ -162,5 +172,7 @@ Route::prefix('v1')->group(function () use ($tenantRoutes) {
         // ---------- Tenant-level ----------
         Route::prefix('t/{tenant}')->middleware('tenant')->group($tenantRoutes);
         Route::middleware('tenant')->group($tenantRoutes);
+        Route::prefix('t/{tenant}')->middleware('tenant:billing')->group($billingRoutes);
+        Route::middleware('tenant:billing')->group($billingRoutes);
     });
 });

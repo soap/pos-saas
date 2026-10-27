@@ -16,12 +16,14 @@ use Symfony\Component\HttpFoundation\Response;
  * หา tenant ที่ request เลือก (path / subdomain / X-Tenant-Id — ดู TenantResolver)
  * แล้วตรวจว่า user ที่ login เป็นสมาชิก active ของ tenant นั้นจริง
  * การระบุ tenant เป็นเพียง "การเลือก" — สิทธิ์มาจาก membership เท่านั้น (spec §8)
+ *
+ * ->middleware('tenant:billing') — ไม่ตรวจ subscription เพื่อให้ร้านที่ถูกระงับ (402) ยังเข้าหน้าชำระค่าแพ็กเกจได้
  */
 class ResolveTenant
 {
     public function __construct(private TenantContext $ctx, private SubscriptionGate $gate, private TenantResolver $resolver) {}
 
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, string $mode = 'enforce'): Response
     {
         $tenantId = $this->resolver->resolve($request);
         // {tenant} ใช้แค่เลือก tenant — ไม่ส่งต่อเป็น argument ของ controller
@@ -45,7 +47,9 @@ class ResolveTenant
             throw ApiException::forbidden('tenant_inactive', 'tenant ถูกระงับหรือปิดใช้งาน');
         }
 
-        $this->gate->ensureActive($tenant);
+        if ($mode !== 'billing') {
+            $this->gate->ensureActive($tenant);
+        }
         $this->ctx->setTenant($tenant, $membership, $user);
 
         return $next($request);

@@ -28,6 +28,22 @@ return [
         'late_threshold_minutes' => (int) env('POS_KDS_LATE_MINUTES', 15),
     ],
 
+    // ค่าแพ็กเกจ: ร้านจ่ายผ่าน PromptPay ของบัญชี Omise "แพลตฟอร์ม" (คนละบัญชีกับที่ร้านใช้รับเงินลูกค้า)
+    'billing' => [
+        // ครบรอบแล้วยังไม่จ่าย → past_due ใช้งานต่อได้อีกกี่วันก่อนถูกระงับ (402)
+        'grace_days' => (int) env('POS_BILLING_GRACE_DAYS', 7),
+        // ออกใบแจ้งหนี้รอบถัดไปล่วงหน้ากี่วัน
+        'invoice_lead_days' => (int) env('POS_BILLING_INVOICE_LEAD_DAYS', 7),
+        'qr_ttl_minutes' => 30,
+        'omise' => [
+            'public_key' => env('POS_BILLING_OMISE_PUBLIC_KEY'),
+            'secret_key' => env('POS_BILLING_OMISE_SECRET_KEY'),
+            'webhook_secret' => env('POS_BILLING_OMISE_WEBHOOK_SECRET'),
+            'account_key' => 'platform-billing',
+            'replay_window_seconds' => 300,
+        ],
+    ],
+
     // ที่อยู่ Reverb ที่ browser ต่อเข้า (ฝั่ง server ส่ง event ผ่าน REVERB_HOST/PORT ซึ่งอาจเป็น address ภายใน)
     // ใช้ได้เมื่อ BROADCAST_CONNECTION=reverb เท่านั้น — ไม่งั้นหน้าจอใช้ polling อย่างเดียว
     'realtime' => [
@@ -91,6 +107,7 @@ return [
         'reports.view' => 'ดูรายงาน',
         'devices.manage' => 'จัดการอุปกรณ์',
         'print.create' => 'สั่งพิมพ์',
+        'billing.manage' => 'ดูและชำระค่าแพ็กเกจ',
     ],
 
     // System roles (tenant_id = NULL)

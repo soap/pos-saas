@@ -72,7 +72,7 @@ composer run dev
 ### งานเบื้องหลัง (Scheduler + Queue worker)
 
 ```bash
-php artisan schedule:work     # dev: รัน outbox:publish ทุกนาที + idempotency:prune ทุกชั่วโมง
+php artisan schedule:work     # dev: รัน outbox:publish ทุกนาที + idempotency:prune และ billing:cycle ทุกชั่วโมง
 php artisan queue:work        # ย่อรูปสินค้า (thumb / preview) และ queued job อื่น ๆ  (composer run dev รันให้แล้ว)
 ```
 
@@ -104,6 +104,8 @@ php artisan reverb:start      # WebSocket server (composer run dev รันใ�
 | `MOCK_QR_WEBHOOK_SECRET`, `MOCK_QR_ACCOUNT_KEY` | — | ใช้กับ mock provider เท่านั้น |
 | `POS_KDS_POLL_SECONDS` / `POS_KDS_LATE_MINUTES` | `3` / `15` | รอบ polling ของจอครัว / นาทีที่ถือว่างานล่าช้า |
 | `MEDIA_DISK` | `local` | disk (private) ของรูปสินค้า — `local` = `storage/app/private`, production ใช้ `s3` ได้ |
+| `POS_BILLING_OMISE_PUBLIC_KEY` / `_SECRET_KEY` / `_WEBHOOK_SECRET` | ว่าง (ปิดการจ่ายค่าแพ็กเกจ) | บัญชี Omise ของแพลตฟอร์มสำหรับเก็บค่าแพ็กเกจ — ตั้ง webhook ใน Omise ไปที่ `/api/v1/webhooks/billing/omise` |
+| `POS_BILLING_GRACE_DAYS` / `POS_BILLING_INVOICE_LEAD_DAYS` | `7` / `7` | ผ่อนผันหลังครบกำหนดก่อนระงับ / ออกใบแจ้งหนี้ล่วงหน้า |
 | `POS_CORS_ALLOWED_ORIGINS` | ว่าง (ไม่เปิด CORS) | origin ของ frontend ที่อยู่คนละโดเมนกับ API คั่นด้วย comma เช่น `https://app.example.com` (SPA `/pos` เป็น same-origin ไม่ต้องใส่) |
 | `POS_REALTIME_HOST` / `_PORT` / `_SCHEME` | ค่า `REVERB_*` | ที่อยู่ Reverb ที่ browser ต่อเข้า (เช่นหลัง reverse proxy) — Reverb รับ WebSocket จาก host ของ `APP_URL`, subdomain ของร้าน และ `POS_CORS_ALLOWED_ORIGINS` เท่านั้น |
 
@@ -350,11 +352,13 @@ $ctx->runAs($tenant, $store, function () use ($x) { SomeJob::dispatch($x); });  
 | ปิดออเดอร์ | `completed` เมื่อยอดชำระสุทธิ **เท่ากับ** ยอดออเดอร์พอดี + ส่งครัวครบ + ticket ทั้งหมด `served` (ถ้าสาขาตั้ง `settings.kitchen_enabled=false` ไม่ต้องรอครัว) |
 | รับเงินเกิน | ถ้ายกเลิก ticket/ให้ส่วนลดหลังชำระแล้ว ออเดอร์จะมี `refund_due_satang` > 0 (บันทึก event `order.refund_due`) และไม่ปิดจนกว่าจะคืนเงินส่วนเกิน |
 | Refund ผ่าน provider | สร้าง refund `pending` (จองยอด) ภายใต้ lock → เรียก provider นอก transaction → `succeeded` หรือ `failed` (เก็บ record + audit `payment.refund_failed` ไว้เสมอ); provider ที่ไม่มี refund API → คืนแบบโอนเอง |
+| Refund ของ Omise | ไม่ทำคืนเงินอัตโนมัติ/webhook ของ refund — [Omise ระบุ](https://docs.omise.co/promptpay) ว่า "PromptPay charges cannot be voided or refunded through Omise" จึงคืนแบบ `manual_transfer` เสมอ (ทบทวนใหม่ถ้าเพิ่มช่องทางบัตร) |
 | ยกเลิกออเดอร์ | ต้องไม่มีการชำระค้าง/สำเร็จ — ต้อง refund ก่อน |
 | Idempotency scope | `(tenant_id, actor_user_id, operation, key)` ไม่รวม store_id ที่อาจเป็น NULL; เก็บเฉพาะ response 2xx, อายุ 24 ชม. |
 | Webhook dedupe | `unique(provider_code, provider_account_key, external_event_id)`; account key ใช้ `''` แทน NULL |
 | System roles | `owner`, `manager`, `cashier`, `kitchen` (tenant_id = NULL) กำหนดใน `config/pos.php` |
-| Subscription | tenant ต้องมี subscription สถานะ trialing/active/past_due (ปิดได้ด้วย `POS_ENFORCE_SUBSCRIPTION=false`) |
+| Subscription | tenant ต้องมี subscription สถานะ trialing/active/past_due และยังไม่เลย "จ่ายถึง" (`trial_ends_at` หรือ `current_period_end`) + `POS_BILLING_GRACE_DAYS` (7) วัน มิฉะนั้น 402 (ปิดได้ด้วย `POS_ENFORCE_SUBSCRIPTION=false`) |
+| ค่าแพ็กเกจ | ร้านจ่ายด้วย PromptPay ผ่านบัญชี Omise ของแพลตฟอร์ม (`POS_BILLING_OMISE_*`, webhook `POST /api/v1/webhooks/billing/omise`); `billing:cycle` (ทุกชั่วโมง) ออกใบแจ้งหนี้ล่วงหน้า 7 วันและเปลี่ยนร้านที่เลยกำหนดเป็น `past_due`; จ่ายสำเร็จ → `active` ถึงสิ้นรอบ; จ่ายหลังถูกระงับ → เริ่มรอบใหม่ตั้งแต่วันที่จ่าย; route `/billing` ไม่ตรวจ subscription เพื่อให้ร้านที่ถูกระงับยังจ่ายได้; `current_period_end` ว่าง = ไม่มีรอบเก็บเงิน (แพ็กเกจฟรี หรือ admin ให้ใช้) |
 | Timezone ของ DB | session ของ Postgres ตั้งเป็น `DB_TIMEZONE` (`UTC`) ให้ตรง `app.timezone` — Laravel เขียน timestamp โดยไม่มี offset ถ้า server เป็น Asia/Bangkok เวลาจะเพี้ยน 7 ชั่วโมง |
 | Platform admin | Filament `/admin` เท่านั้น บังคับ MFA (passkey หรือ TOTP); ทำงานใน platform scope (ข้าม tenant) |
 | รูปสินค้า | `spatie/laravel-medialibrary`; ตาราง `media` มี `tenant_id` + global scope; ไฟล์อยู่ disk private (`MEDIA_DISK`) ที่ `tenants/{tenant_id}/media/{uuid}/` (รูปย่อใน `conversions/`) |
@@ -367,10 +371,9 @@ $ctx->runAs($tenant, $store, function () use ($x) { SomeJob::dispatch($x); });  
 
 ## 7. สิ่งที่ยังไม่ได้ทำ / ต้องทำก่อน production
 
-- Refund อัตโนมัติของ Omise (ตอนนี้คืนแบบโอนเอง) — refund ของ provider จริงอาจเป็น async ต้องเพิ่ม webhook ของ refund
 - Local Print Bridge (มี API คิวงานพิมพ์แล้ว: `GET print-jobs`, `POST print-jobs/{id}/result`)
 - Redis + Horizon สำหรับ queue/cache (ตอนนี้ใช้ database driver — เปลี่ยนได้ใน `.env`)
 - เก็บรูปสินค้าบน S3 (bucket แบบ private): ตั้ง `MEDIA_DISK=s3` — รูปยังเปิดผ่าน signed route เดิม (server stream ไฟล์ให้);
   ถ้าต้องการลดโหลด server ให้เปลี่ยนไปใช้ presigned URL ของ S3 / CDN
-- รอบชำระค่า subscription (`subscription_payments`) — มีตารางแล้ว ยังไม่มี flow เก็บเงิน
+- ค่าแพ็กเกจ: หน้าใบแจ้งหนี้ใน Filament (ดู/ยกเลิกเป็น `void`), แจ้งเตือนเจ้าของร้านก่อนครบกำหนด (อีเมล/LINE), ใบกำกับภาษี
 - Retention policy ของ webhook payload / audit log, backup + restore test, structured logging / alert

@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Services;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Tenancy\Models\Tenant;
 use App\Support\Errors\ApiException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -28,12 +29,26 @@ class SubscriptionGate
         if (! config('pos.enforce_subscription')) {
             return;
         }
-        $sub = $this->current($tenant);
-        $usable = $sub && in_array($sub->status, self::USABLE_STATUSES, true)
-            && ! ($sub->status === 'trialing' && $sub->trial_ends_at && $sub->trial_ends_at->isPast());
-        if (! $usable) {
+        if (! $this->isUsable($this->current($tenant))) {
             throw new ApiException(402, 'subscription_inactive', 'แพ็กเกจของร้านหมดอายุหรือยังไม่เปิดใช้งาน');
         }
+    }
+
+    /** ใช้งานได้ถ้าสถานะยังมีผล และยังไม่เลยวันที่จ่ายถึง + ระยะผ่อนผัน (ครบรอบแล้วยังไม่จ่าย = past_due ใช้ต่อได้ grace_days วัน) */
+    public function isUsable(?Subscription $sub): bool
+    {
+        if (! $sub || ! in_array($sub->status, self::USABLE_STATUSES, true)) {
+            return false;
+        }
+        $graceEndsAt = $this->graceEndsAt($sub);
+
+        return $graceEndsAt === null || $graceEndsAt->isFuture();
+    }
+
+    /** วันที่จะถูกระงับถ้ายังไม่จ่าย — null = ไม่มีรอบเก็บเงิน */
+    public function graceEndsAt(Subscription $sub): ?Carbon
+    {
+        return $sub->paidThrough()?->copy()->addDays((int) config('pos.billing.grace_days'));
     }
 
     /** ค่า limit เช่น max_stores: tenant_features override > plan.limits; null = ไม่จำกัด */
