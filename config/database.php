@@ -97,6 +97,9 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Laravel เขียน timestamp เป็นเวลาตาม app.timezone โดยไม่มี offset → session ของ Postgres ต้องเป็น timezone เดียวกัน
+            // ไม่งั้น timestampTz จะเพี้ยนตาม timezone ของ server (เช่น Asia/Bangkok = เลื่อน 7 ชั่วโมง)
+            'timezone' => env('DB_TIMEZONE', 'UTC'),
         ],
 
         'sqlsrv' => [

@@ -353,6 +353,7 @@ $ctx->runAs($tenant, $store, function () use ($x) { SomeJob::dispatch($x); });  
 | Webhook dedupe | `unique(provider_code, provider_account_key, external_event_id)`; account key ใช้ `''` แทน NULL |
 | System roles | `owner`, `manager`, `cashier`, `kitchen` (tenant_id = NULL) กำหนดใน `config/pos.php` |
 | Subscription | tenant ต้องมี subscription สถานะ trialing/active/past_due (ปิดได้ด้วย `POS_ENFORCE_SUBSCRIPTION=false`) |
+| Timezone ของ DB | session ของ Postgres ตั้งเป็น `DB_TIMEZONE` (`UTC`) ให้ตรง `app.timezone` — Laravel เขียน timestamp โดยไม่มี offset ถ้า server เป็น Asia/Bangkok เวลาจะเพี้ยน 7 ชั่วโมง |
 | Platform admin | Filament `/admin` เท่านั้น บังคับ MFA (passkey หรือ TOTP); ทำงานใน platform scope (ข้าม tenant) |
 | รูปสินค้า | `spatie/laravel-medialibrary`; ตาราง `media` มี `tenant_id` + global scope; ไฟล์อยู่ disk private (`MEDIA_DISK`) ที่ `tenants/{tenant_id}/media/{uuid}/` (รูปย่อใน `conversions/`) |
 | เปิดไฟล์ media | ผ่าน `MediaController` ด้วย signed URL แบบ relative เท่านั้น (`<img>` ส่ง Bearer token ไม่ได้, relative เพื่อใช้ได้ทั้ง path/subdomain ของร้าน); ส่ง `Cache-Control: private, max-age=86400` |
