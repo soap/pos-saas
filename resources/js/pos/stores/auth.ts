@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { api, setRequestContext } from '@pos/api/client';
 import type { LoginResponse, MeResponse, TenantSummary, User } from '@pos/api/types';
+import { disconnectRealtime } from '@pos/lib/realtime';
 import { storage } from '@pos/lib/storage';
 
 const TOKEN_KEY = 'pos.token';
@@ -48,6 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     function clear(): void {
+        disconnectRealtime();
         setToken(null);
         user.value = null;
         tenants.value = [];

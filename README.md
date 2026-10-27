@@ -49,11 +49,11 @@ CREATE DATABASE pos_test OWNER pos;   -- สำหรับ automated tests
 # 3) สร้างตาราง + ข้อมูลตัวอย่าง
 php artisan migrate --seed
 
-# 4) รัน server + queue worker + Vite พร้อมกัน
+# 4) รัน server + queue worker + Reverb + Vite พร้อมกัน
 composer run dev
 ```
 
-หรือ build frontend ครั้งเดียวด้วย `npm run build` แล้วรัน `php artisan serve` + `php artisan queue:work` เอง
+หรือ build frontend ครั้งเดียวด้วย `npm run build` แล้วรัน `php artisan serve` + `php artisan queue:work` + `php artisan reverb:start` เอง
 
 **Laragon (Windows):** เปิด extension `pdo_pgsql`, `pgsql`, `gd` ที่ Menu → PHP → Extensions แล้ว restart
 **Herd:** PostgreSQL มีใน Herd Pro (Services) หรือติดตั้ง PostgreSQL แยกได้
@@ -78,6 +78,20 @@ php artisan queue:work        # ย่อรูปสินค้า (thumb / pr
 
 Production ให้ตั้ง cron/Task Scheduler เรียก `php artisan schedule:run` ทุกนาที และรัน `queue:work` ค้างไว้ด้วย supervisor/systemd
 (`QUEUE_CONNECTION` ต้องไม่ใช่ `sync` — ถ้าไม่มี worker รูปที่อัปโหลดจะไม่ถูกย่อ เมนูจะใช้ไฟล์ต้นฉบับแทน)
+
+### Realtime (Laravel Reverb)
+
+```bash
+php artisan reverb:start      # WebSocket server (composer run dev รันให้แล้ว)
+```
+
+- ทุกการเปลี่ยนของออเดอร์ (`OrderService::event()`) ส่งสัญญาณ `order.changed` เข้า private channel `store.{storeId}`
+  มีแค่ `order_id`, `event_type`, `payment_id` — จอครัว, ผังโต๊ะ, ออเดอร์ที่เปิดอยู่ และหน้ารอ QR ดึงข้อมูลล่าสุดจาก API เอง
+- สัญญาณถูก queue หลัง commit → ต้องมี `queue:work` (ใช้ `--sleep=1` เพื่อลด latency ของ database queue)
+- ขอสิทธิ์ channel ที่ `POST /api/v1[/t/{slug}]/broadcasting/auth` (ผ่าน tenant + store middleware เหมือน API อื่น)
+- polling ยังทำงานเป็นทางสำรอง: ขณะต่อ realtime อยู่ poll ทุก 60 วินาที, หลุดเมื่อไรกลับไป poll ถี่ตามเดิมทันที
+- Production: เปิด Reverb หลัง reverse proxy (TLS) แล้วตั้ง `POS_REALTIME_HOST/PORT/SCHEME` เป็นที่อยู่ที่ browser ต่อเข้า,
+  รัน `reverb:start` ด้วย supervisor/systemd และตั้ง `BROADCAST_CONNECTION=log` ถ้าต้องการปิด realtime
 
 ### ตัวแปร environment ของระบบ
 
@@ -355,7 +369,6 @@ $ctx->runAs($tenant, $store, function () use ($x) { SomeJob::dispatch($x); });  
 - Redis + Horizon สำหรับ queue/cache (ตอนนี้ใช้ database driver — เปลี่ยนได้ใน `.env`)
 - เก็บรูปสินค้าบน S3 (bucket แบบ private): ตั้ง `MEDIA_DISK=s3` — รูปยังเปิดผ่าน signed route เดิม (server stream ไฟล์ให้);
   ถ้าต้องการลดโหลด server ให้เปลี่ยนไปใช้ presigned URL ของ S3 / CDN
-- หน้าจอติดตามสถานะแบบ push (WebSocket / Reverb) แทน polling ของจอครัวและหน้าขาย
 - รอบชำระค่า subscription (`subscription_payments`) — มีตารางแล้ว ยังไม่มี flow เก็บเงิน
 - Retention policy ของ webhook payload / audit log, backup + restore test, structured logging / alert
 - CORS allowlist สำหรับโดเมน frontend (`php artisan config:publish cors` แล้วแก้ `allowed_origins`) — จำเป็นเมื่อ SPA อยู่คนละโดเมนกับ API

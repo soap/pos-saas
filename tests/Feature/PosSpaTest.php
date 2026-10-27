@@ -60,4 +60,27 @@ class PosSpaTest extends TestCase
         // ไม่มีร้านนี้ในฐานข้อมูล แต่ยังได้ shell ปกติ — สิทธิ์ตรวจที่ API หลัง login
         $this->assertSame('no-such-shop', $this->shellConfig('/pos/t/no-such-shop')['tenant']['slug']);
     }
+
+    public function test_shell_gives_public_reverb_settings_without_secret(): void
+    {
+        config([
+            'broadcasting.default' => 'reverb',
+            'broadcasting.connections.reverb.key' => 'public-key',
+            'broadcasting.connections.reverb.secret' => 'server-secret',
+            'pos.realtime' => ['host' => 'ws.pos.test', 'port' => 443, 'scheme' => 'https'],
+        ]);
+
+        $this->assertSame(
+            ['key' => 'public-key', 'host' => 'ws.pos.test', 'port' => 443, 'scheme' => 'https'],
+            $this->shellConfig('/pos')['realtime'],
+        );
+        $this->get('/pos')->assertDontSee('server-secret');
+    }
+
+    public function test_shell_disables_realtime_when_broadcaster_is_not_reverb(): void
+    {
+        config(['broadcasting.default' => 'null']);
+
+        $this->assertNull($this->shellConfig('/pos')['realtime']);
+    }
 }

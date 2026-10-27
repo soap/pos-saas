@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { DiningTable } from '@pos/api/types';
 import { formatBaht } from '@pos/lib/money';
+import { shouldPoll, useStoreActivity } from '@pos/lib/realtime';
 import { toastError } from '@pos/lib/toast';
 import { usePosStore } from '@pos/stores/pos';
 import { useSessionStore } from '@pos/stores/session';
@@ -16,6 +17,7 @@ const session = useSessionStore();
 const nowMs = ref(Date.now());
 const isLoading = ref(pos.tables.length === 0);
 let timer: ReturnType<typeof setInterval> | null = null;
+let lastRefreshAt = 0;
 
 const zones = computed(() => {
     const groups = new Map<string, DiningTable[]>();
@@ -42,6 +44,7 @@ async function refresh(): Promise<void> {
     try {
         await pos.loadTables();
         nowMs.value = Date.now();
+        lastRefreshAt = Date.now();
     } catch (e) {
         toastError(e);
     } finally {
@@ -49,9 +52,19 @@ async function refresh(): Promise<void> {
     }
 }
 
+// เปิด/ปิด/ย้ายโต๊ะจากเครื่องอื่น → ดึงผังใหม่ทันที (ทุกการเปลี่ยนของออเดอร์ส่งผลต่อโต๊ะได้)
+useStoreActivity(
+    () => session.storeId,
+    () => void refresh(),
+);
+
 onMounted(() => {
     void refresh();
-    timer = setInterval(refresh, REFRESH_MS);
+    timer = setInterval(() => {
+        if (shouldPoll(lastRefreshAt)) {
+            void refresh();
+        }
+    }, REFRESH_MS);
 });
 onBeforeUnmount(() => {
     if (timer !== null) {

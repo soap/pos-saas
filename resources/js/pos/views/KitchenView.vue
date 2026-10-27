@@ -6,6 +6,7 @@ import type { KitchenStation, KitchenTicket } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
 import KitchenTicketCard from '@pos/components/KitchenTicketCard.vue';
 import { isSoundUnlocked, keepScreenAwake, playChime, releaseScreenAwake, unlockSound } from '@pos/lib/kitchenAlerts';
+import { LIVE_FALLBACK_POLL_MS, realtimeState } from '@pos/lib/realtime';
 import { storage } from '@pos/lib/storage';
 import { toast, toastError } from '@pos/lib/toast';
 import { useAuthStore } from '@pos/stores/auth';
@@ -39,10 +40,10 @@ let clock: ReturnType<typeof setInterval> | null = null;
 const canUpdate = computed(() => session.can('kitchen.update'));
 const canServe = computed(() => session.can('kitchen.update') || session.can('orders.create'));
 const canVoid = computed(() => session.can('kitchen.void'));
-/** ไม่ได้ sync สำเร็จเกิน 3 รอบ (ขั้นต่ำ 15 วินาที) = ข้อมูลอาจไม่เป็นปัจจุบัน */
+/** ไม่ได้ sync สำเร็จเกิน 3 รอบ (ขั้นต่ำ 15 วินาที; ขณะ realtime ต่ออยู่ poll ห่างลง จึงนับจากรอบสำรอง) = ข้อมูลอาจไม่เป็นปัจจุบัน */
 const isStale = computed(() => {
     const last = kitchen.lastSyncAt;
-    const limit = Math.max(15_000, kitchen.pollIntervalSeconds * 3000);
+    const limit = realtimeState.value === 'live' ? LIVE_FALLBACK_POLL_MS * 2 : Math.max(15_000, kitchen.pollIntervalSeconds * 3000);
 
     return last !== null && nowMs.value - last > limit;
 });
@@ -202,6 +203,7 @@ onBeforeUnmount(() => {
                     <span class="inline-block size-2 rounded-full" :class="kitchen.connection === 'live' && !isStale ? 'bg-emerald-400' : 'bg-rose-400'" aria-hidden="true" />
                     <template v-if="kitchen.connection === 'connecting'">กำลังเชื่อมต่อ…</template>
                     <template v-else-if="kitchen.connection === 'offline'">ขาดการเชื่อมต่อ — กำลังลองใหม่</template>
+                    <template v-else-if="realtimeState === 'live'">ออนไลน์ · realtime</template>
                     <template v-else>ออนไลน์</template>
                     · อัปเดตล่าสุด {{ lastSyncText }}
                 </p>

@@ -26,6 +26,8 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
+        // ไม่ใช้ channels: ที่นี่ — มันลงทะเบียน /broadcasting/auth แบบ session; route ขอสิทธิ์อยู่ใน routes/api.php
+        // (ผ่าน tenant + store) และโหลด routes/channels.php ใน AppServiceProvider
         health: '/up',
     )
     ->withCommands([

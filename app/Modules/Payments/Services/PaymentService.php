@@ -15,6 +15,7 @@ use App\Modules\Tenancy\Models\Store;
 use App\Support\Errors\ApiException;
 use App\Support\Money\Satang;
 use App\Support\Outbox\Outbox;
+use App\Support\Realtime\StoreActivity;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -320,6 +321,8 @@ class PaymentService
             ...$attempt->response_payload,
             'slip_rejection' => ['reason' => $reason, 'at' => now()->toAtomString()],
         ]]);
+        $orderId = Payment::query()->withoutGlobalScopes()->whereKey($attempt->payment_id)->value('order_id');
+        StoreActivity::dispatch($attempt->store_id, $orderId, 'payment.slip_rejected', $attempt->payment_id);
     }
 
     private function resolveAmount(Order $order, ?int $amount): int

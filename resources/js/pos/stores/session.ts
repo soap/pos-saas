@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { ApiError, api, setRequestContext } from '@pos/api/client';
 import type { CashierShift, Context, StoreDetail } from '@pos/api/types';
 import { scopedKey } from '@pos/lib/config';
+import { disconnectRealtime } from '@pos/lib/realtime';
 import { storage } from '@pos/lib/storage';
 
 const TENANT_KEY = scopedKey('pos.tenant_id');
@@ -32,6 +33,7 @@ export const useSessionStore = defineStore('session', () => {
     }
 
     function select(nextTenantId: string, nextStoreId: string): void {
+        disconnectRealtime();
         tenantId.value = nextTenantId;
         storeId.value = nextStoreId;
         storage.set(TENANT_KEY, nextTenantId);
@@ -43,6 +45,7 @@ export const useSessionStore = defineStore('session', () => {
     }
 
     function clear(): void {
+        disconnectRealtime();
         tenantId.value = null;
         storeId.value = null;
         storage.set(TENANT_KEY, null);

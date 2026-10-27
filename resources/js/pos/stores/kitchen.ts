@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { api } from '@pos/api/client';
 import type { KitchenTicket, KitchenTicketPage, KitchenTicketStatus } from '@pos/api/types';
 import { scopedKey } from '@pos/lib/config';
+import { coalescedListener, LIVE_FALLBACK_POLL_MS, onStoreActivity, realtimeState } from '@pos/lib/realtime';
 import { storage } from '@pos/lib/storage';
+import { useSessionStore } from '@pos/stores/session';
 
 type ConnectionState = 'connecting' | 'live' | 'offline';
 
@@ -15,8 +17,9 @@ const ACTIVE: KitchenTicketStatus[] = ['queued', 'preparing', 'ready'];
 const STATION_KEY = scopedKey('pos.kitchen.station');
 
 /**
- * คิวงานครัวแบบ polling: full sync ครั้งแรก แล้วดึงเฉพาะที่เปลี่ยนด้วย updated_after = server_time รอบก่อน
+ * คิวงานครัว: full sync ครั้งแรก แล้วดึงเฉพาะที่เปลี่ยนด้วย updated_after = server_time รอบก่อน
  * ไม่ใช้นาฬิกา browser เป็น cursor
+ * มีสัญญาณ realtime → sync ทันที; polling ยังทำงานเป็นทางสำรอง (ห่างลงขณะ realtime ต่ออยู่)
  */
 export const useKitchenStore = defineStore('kitchen', () => {
     const tickets = ref<Map<string, KitchenTicket>>(new Map());
@@ -35,6 +38,9 @@ export const useKitchenStore = defineStore('kitchen', () => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let failures = 0;
     let running = false;
+    let isSyncing = false;
+    let needsResync = false;
+    let stopRealtime: (() => void) | null = null;
     let onNewTickets: (count: number) => void = () => {};
     /** เพิ่มทุกครั้งที่เปลี่ยน station — ผล poll ที่ค้างจาก station เดิมจะถูกทิ้ง */
     let generation = 0;
@@ -125,7 +131,15 @@ export const useKitchenStore = defineStore('kitchen', () => {
         if (!running) {
             return;
         }
-        let delay = pollIntervalSeconds.value * 1000;
+        // สัญญาณ realtime มาระหว่าง sync รอบก่อนยังไม่จบ → ให้รอบนั้นจบแล้วดึงต่อทันที (กัน cursor แข่งกัน)
+        if (isSyncing) {
+            needsResync = true;
+
+            return;
+        }
+        isSyncing = true;
+        // realtime ต่ออยู่ → poll แค่ห่าง ๆ เป็นทางสำรอง
+        let delay = realtimeState.value === 'live' ? LIVE_FALLBACK_POLL_MS : pollIntervalSeconds.value * 1000;
         try {
             await sync();
             failures = 0;
@@ -133,8 +147,14 @@ export const useKitchenStore = defineStore('kitchen', () => {
         } catch {
             failures++;
             connection.value = 'offline';
-            delay = Math.min(MAX_BACKOFF_MS, delay * 2 ** failures);
+            delay = Math.min(MAX_BACKOFF_MS, pollIntervalSeconds.value * 1000 * 2 ** failures);
+        } finally {
+            isSyncing = false;
         }
+        if (needsResync && failures === 0) {
+            delay = 0;
+        }
+        needsResync = false;
         if (running) {
             timer = setTimeout(tick, delay);
         }
@@ -147,11 +167,23 @@ export const useKitchenStore = defineStore('kitchen', () => {
         }
         running = true;
         connection.value = 'connecting';
+        const storeId = useSessionStore().storeId;
+        // สัญญาณใด ๆ ของสาขา (หรือเพิ่งต่อ realtime ได้) → delta sync ทันที
+        if (storeId) {
+            const { listener, cancel } = coalescedListener(syncNow);
+            const unsubscribe = onStoreActivity(storeId, listener);
+            stopRealtime = () => {
+                unsubscribe();
+                cancel();
+            };
+        }
         void tick();
     }
 
     function stop(): void {
         running = false;
+        stopRealtime?.();
+        stopRealtime = null;
         if (timer !== null) {
             clearTimeout(timer);
             timer = null;
@@ -159,6 +191,13 @@ export const useKitchenStore = defineStore('kitchen', () => {
     }
 
     /** ดึงทันที (เช่นกลับมาออนไลน์ หรือแท็บกลับมา active) */
+    // realtime หลุด → รอบ poll ถัดไปอาจอยู่อีกนาน: sync ทันทีแล้วกลับไป poll ถี่ตามเดิม
+    watch(realtimeState, (state) => {
+        if (state !== 'live') {
+            syncNow();
+        }
+    });
+
     function syncNow(): void {
         if (!running) {
             return;

@@ -32,6 +32,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->app->make(QueueTenancy::class)->register($this->app['events']);
+        require base_path('routes/channels.php');
 
         // route parameter ทุกตัวต้องเป็น UUID → id ผิดรูปแบบได้ 404 แทน SQL error
         $uuid = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';

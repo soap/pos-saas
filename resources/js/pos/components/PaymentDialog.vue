@@ -5,10 +5,13 @@ import { api, newIdempotencyKey } from '@pos/api/client';
 import type { Order, Payment, QrInstruction } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
 import { formatBaht, parseBahtToSatang } from '@pos/lib/money';
+import { useStoreActivity } from '@pos/lib/realtime';
 import { errorMessage, toastError } from '@pos/lib/toast';
+import { useSessionStore } from '@pos/stores/session';
 
 const props = defineProps<{ order: Order }>();
 const emit = defineEmits<{ close: []; paid: [payment: Payment] }>();
+const session = useSessionStore();
 
 const POLL_MS = 3000;
 /** ถาม provider ตรง ๆ (refresh=1) ทุก ๆ N รอบ — เผื่อ webhook มาช้า; route นี้จำกัด 60 ครั้ง/นาที */
@@ -116,6 +119,18 @@ async function pollPayment(): Promise<void> {
         schedulePoll();
     }
 }
+
+// webhook ยืนยันเงินเข้า/สลิปไม่ผ่าน → ถามสถานะทันที ไม่ต้องรอรอบ poll (poll ยังอยู่ เผื่อ webhook ไม่มา)
+useStoreActivity(
+    () => session.storeId,
+    () => {
+        if (qrInFlight.value) {
+            stopPolling();
+            void pollPayment();
+        }
+    },
+    (activity) => activity.payment_id !== null && activity.payment_id === qrPayment.value?.id,
+);
 
 async function submitSlip(): Promise<void> {
     const payload = slipInput.value.trim();

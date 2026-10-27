@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Support\Realtime\StoreActivity;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Soap\LaravelOmise\Facades\Omise;
 use Tests\Support\PosWorld;
@@ -60,6 +62,18 @@ class EasySlipPaymentTest extends TestCase
         $this->assertSame('processing', $this->paymentStatus($paymentId));
         $this->api($this->cashierA1, 'GET', "payments/{$paymentId}")->assertOk()
             ->assertJsonPath('data.slip.rejection.reason', 'amount_mismatch');
+    }
+
+    public function test_slip_rejection_signals_the_store_so_the_cashier_screen_refreshes(): void
+    {
+        $account = $this->createEasySlipAccount();
+        [$paymentId, $reference] = $this->submitSlipForNewPayment();
+        Event::fake([StoreActivity::class]);
+
+        $this->sendSlipResult($account['webhook_url'], 'job-1', $reference, ['isAmountMatched' => false, 'amountInSlip' => 10])->assertOk();
+
+        Event::assertDispatched(StoreActivity::class, fn (StoreActivity $activity): bool => $activity->storeId === $this->storeA1->id
+            && $activity->eventType === 'payment.slip_rejected' && $activity->paymentId === $paymentId);
     }
 
     public function test_slip_already_used_for_another_payment_is_rejected(): void

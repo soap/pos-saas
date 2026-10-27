@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { KitchenTicketStatus, OrderItem, OrderStatus } from '@pos/api/types';
 import { formatBaht } from '@pos/lib/money';
+import { shouldPoll, useStoreActivity } from '@pos/lib/realtime';
 import { toast, toastError } from '@pos/lib/toast';
 import { usePosStore } from '@pos/stores/pos';
 import { useSessionStore } from '@pos/stores/session';
@@ -17,6 +18,7 @@ const busyItemId = ref<string | null>(null);
 const isSending = ref(false);
 const isServing = ref(false);
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let lastRefreshAt = 0;
 
 const statusLabels: Record<OrderStatus, string> = {
     draft: 'ยังไม่ส่งครัว',
@@ -115,13 +117,25 @@ async function refreshKitchenStatus(): Promise<void> {
     }
     try {
         await pos.refreshOrder();
+        lastRefreshAt = Date.now();
     } catch {
         // เน็ตสะดุดชั่วคราว — รอบถัดไปลองใหม่
     }
 }
 
+// ออเดอร์ที่เปิดอยู่ถูกเปลี่ยนจากเครื่องอื่น (ครัว/แคชเชียร์อีกจุด) → ดึงใหม่ทันที; null = เพิ่งต่อ realtime ได้
+useStoreActivity(
+    () => session.storeId,
+    () => void refreshKitchenStatus(),
+    (activity) => activity.order_id === pos.order?.id,
+);
+
 onMounted(() => {
-    refreshTimer = setInterval(refreshKitchenStatus, REFRESH_MS);
+    refreshTimer = setInterval(() => {
+        if (shouldPoll(lastRefreshAt)) {
+            void refreshKitchenStatus();
+        }
+    }, REFRESH_MS);
 });
 onBeforeUnmount(() => {
     if (refreshTimer !== null) {

@@ -15,6 +15,7 @@ use App\Modules\Tenancy\Models\Store;
 use App\Support\Errors\ApiException;
 use App\Support\Money\Satang;
 use App\Support\Outbox\Outbox;
+use App\Support\Realtime\StoreActivity;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -298,6 +299,8 @@ class OrderService
             'payload' => $payload ?: (object) [],
             'created_at' => now(),
         ]);
+        // ทุกการเปลี่ยนแปลงของออเดอร์ผ่านจุดนี้ → แจ้งจอครัว/หน้าขายของสาขาให้ดึงข้อมูลใหม่
+        StoreActivity::dispatch($order->store_id, $order->id, $type, $payload['payment_id'] ?? null);
     }
 
     // ------------------------------------------------------------------

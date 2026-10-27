@@ -28,6 +28,14 @@ return [
         'late_threshold_minutes' => (int) env('POS_KDS_LATE_MINUTES', 15),
     ],
 
+    // ที่อยู่ Reverb ที่ browser ต่อเข้า (ฝั่ง server ส่ง event ผ่าน REVERB_HOST/PORT ซึ่งอาจเป็น address ภายใน)
+    // ใช้ได้เมื่อ BROADCAST_CONNECTION=reverb เท่านั้น — ไม่งั้นหน้าจอใช้ polling อย่างเดียว
+    'realtime' => [
+        'host' => env('POS_REALTIME_HOST') ?: env('REVERB_HOST'),
+        'port' => (int) (env('POS_REALTIME_PORT') ?: env('REVERB_PORT', 443)),
+        'scheme' => env('POS_REALTIME_SCHEME') ?: env('REVERB_SCHEME', 'https'),
+    ],
+
     'payments' => [
         // provider เมื่อสาขายังไม่ได้เลือกบัญชี QR (stores.qr_payment_account_id) — production ควรตั้งเป็นค่าว่าง
         'default_qr_provider' => env('POS_QR_PROVIDER', 'mock'),

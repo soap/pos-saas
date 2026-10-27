@@ -12,6 +12,7 @@ use App\Modules\Payments\Http\Controllers\PaymentAccountController;
 use App\Modules\Payments\Http\Controllers\PaymentController;
 use App\Modules\Reporting\Http\Controllers\ReportController;
 use App\Modules\Tenancy\Http\Controllers\TenantController;
+use Illuminate\Broadcasting\BroadcastController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -102,6 +103,9 @@ $tenantRoutes = function () {
         Route::post('kitchen/tickets/{id}/ready', [KitchenController::class, 'ready'])->middleware('perm:kitchen.update');
         Route::post('kitchen/tickets/{id}/served', [KitchenController::class, 'served'])->middleware('perm:kitchen.update|orders.create');
         Route::post('kitchen/tickets/{id}/cancel', [KitchenController::class, 'cancel'])->middleware('perm:kitchen.void');
+
+        // Realtime (Reverb) — ขอสิทธิ์ subscribe private channel ของสาขา (routes/channels.php)
+        Route::post('broadcasting/auth', [BroadcastController::class, 'authenticate'])->middleware('perm:orders.view|kitchen.view');
 
         // Payments
         Route::middleware('throttle:payments')->group(function () {

@@ -7,6 +7,8 @@
 export interface PosConfig {
     tenant: { slug: string; via: 'path' | 'subdomain' } | null;
     subdomain_base: string | null;
+    /** Reverb ที่ browser ต่อเข้า — null = server ไม่ได้เปิด realtime (ใช้ polling อย่างเดียว) */
+    realtime: { key: string; host: string; port: number; scheme: 'http' | 'https' } | null;
 }
 
 function readConfig(): PosConfig {
@@ -14,9 +16,9 @@ function readConfig(): PosConfig {
         const raw = document.getElementById('pos-config')?.textContent;
         const parsed = raw ? (JSON.parse(raw) as Partial<PosConfig>) : {};
 
-        return { tenant: parsed.tenant ?? null, subdomain_base: parsed.subdomain_base ?? null };
+        return { tenant: parsed.tenant ?? null, subdomain_base: parsed.subdomain_base ?? null, realtime: parsed.realtime ?? null };
     } catch {
-        return { tenant: null, subdomain_base: null };
+        return { tenant: null, subdomain_base: null, realtime: null };
     }
 }
 

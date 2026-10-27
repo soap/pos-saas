@@ -40,6 +40,13 @@ class PosShellController extends Controller
                 },
                 // ให้หน้าหลังร้านแสดงลิงก์ประจำร้านแบบ subdomain ได้ (ว่าง = ไม่ได้เปิดใช้)
                 'subdomain_base' => config('pos.tenancy.subdomain_base') ?: null,
+                // key ของ Reverb เป็นค่าสาธารณะ (เหมือน Pusher app key) — secret อยู่ฝั่ง server เท่านั้น
+                'realtime' => config('broadcasting.default') === 'reverb' ? [
+                    'key' => config('broadcasting.connections.reverb.key'),
+                    'host' => config('pos.realtime.host'),
+                    'port' => config('pos.realtime.port'),
+                    'scheme' => config('pos.realtime.scheme'),
+                ] : null,
             ],
         ]);
     }
