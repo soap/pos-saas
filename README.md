@@ -3,10 +3,10 @@
 [![Tests](https://github.com/soap/pos-saas/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/soap/pos-saas/actions/workflows/tests.yml)
 [![Code Style](https://github.com/soap/pos-saas/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/soap/pos-saas/actions/workflows/lint.yml)
 ![PHP](https://img.shields.io/badge/PHP-8.4%20%7C%208.5-777BB4?logo=php&logoColor=white)
-![Laravel](https://img.shields.io/badge/Laravel-12-FF2D20?logo=laravel&logoColor=white)
+![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20?logo=laravel&logoColor=white)
 
 ระบบ POS แบบ SaaS ตามเอกสาร **Laravel POS SaaS — ERD & Database Schema Specification v1.1** (`docs/`)
-Multi-tenant / Multi-store บน Laravel 12 + PostgreSQL + Sanctum ประกอบด้วย 3 ส่วน:
+Multi-tenant / Multi-store บน Laravel 13 + PostgreSQL + Sanctum ประกอบด้วย 3 ส่วน:
 
 | ส่วน | URL | เทคโนโลยี |
 | --- | --- | --- |
@@ -18,7 +18,7 @@ Multi-tenant / Multi-store บน Laravel 12 + PostgreSQL + Sanctum ประก
 
 ## 1. ติดตั้งบนเครื่อง (Laragon / Herd + PostgreSQL)
 
-ต้องมี: PHP 8.2+ (extension `pdo_pgsql`, `pgsql`, `mbstring`, `gd` สำหรับย่อรูปสินค้า, `intl` แนะนำ), Composer 2,
+ต้องมี: PHP 8.3+ (extension `pdo_pgsql`, `pgsql`, `mbstring`, `gd` สำหรับย่อรูปสินค้า, `intl` แนะนำ), Composer 2,
 Node.js 20.19+ หรือ 22.12+ (Vite 7), PostgreSQL 14+ (แนะนำ 16)
 
 ```bash
