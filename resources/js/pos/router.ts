@@ -29,6 +29,8 @@ export const router = createRouter({
         },
         // นอก ManageLayout: layout โหลด /context ซึ่งได้ 402 เมื่อร้านถูกระงับ แต่หน้านี้ต้องเปิดได้เพื่อจ่าย
         { path: '/billing', name: 'billing', component: () => import('@pos/views/BillingView.vue'), meta: { needsStore: true } },
+        // จอฝั่งลูกค้า: ไม่ต้อง login — แสดงเฉพาะสิ่งที่หน้าขายในเครื่องเดียวกันส่งมา (lib/customerDisplay)
+        { path: '/customer-display', name: 'customer-display', component: () => import('@pos/views/CustomerDisplayView.vue'), meta: { standalone: true } },
         { path: '/receipt/:orderId', name: 'receipt', component: () => import('@pos/views/ReceiptView.vue'), props: true, meta: { needsStore: true } },
         { path: '/:pathMatch(.*)*', redirect: '/' },
     ],
@@ -38,6 +40,9 @@ router.beforeEach((to) => {
     const auth = useAuthStore();
     const session = useSessionStore();
 
+    if (to.meta.standalone) {
+        return true;
+    }
     if (to.meta.guest) {
         return auth.isAuthenticated ? { name: 'register' } : true;
     }
@@ -54,6 +59,8 @@ router.beforeEach((to) => {
 declare module 'vue-router' {
     interface RouteMeta {
         guest?: boolean;
+        /** เปิดได้โดยไม่ต้อง login/เลือกสาขา */
+        standalone?: boolean;
         needsStore?: boolean;
     }
 }

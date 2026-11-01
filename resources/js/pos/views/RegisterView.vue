@@ -14,6 +14,7 @@ import PaymentDialog from '@pos/components/PaymentDialog.vue';
 import RefundDialog from '@pos/components/RefundDialog.vue';
 import ShiftDialog from '@pos/components/ShiftDialog.vue';
 import TablesPanel from '@pos/components/TablesPanel.vue';
+import { isCustomerDisplaySupported, openCustomerDisplayWindow } from '@pos/lib/customerDisplay';
 import { toast, toastError } from '@pos/lib/toast';
 import { useAuthStore } from '@pos/stores/auth';
 import { usePosStore } from '@pos/stores/pos';
@@ -109,6 +110,12 @@ async function onRefunded(): Promise<void> {
     await Promise.allSettled([pos.refreshOrder(), session.refreshShift()]);
 }
 
+async function openCustomerDisplay(): Promise<void> {
+    if (!(await openCustomerDisplayWindow(router.resolve({ name: 'customer-display' }).href))) {
+        toast('browser บล็อกหน้าต่างใหม่ — กรุณาอนุญาต pop-up สำหรับเว็บนี้', 'error');
+    }
+}
+
 async function logout(): Promise<void> {
     await auth.logout();
     session.clear();
@@ -163,6 +170,15 @@ onMounted(load);
                 {{ session.shift ? 'ปิดกะ' : 'เปิดกะ' }}
             </button>
             <RouterLink v-if="canManage" :to="{ name: 'manage' }" class="rounded-lg px-3 py-2 text-sm font-medium hover:bg-teal-700">จัดการร้าน</RouterLink>
+"            <button
+                v-if="isCustomerDisplaySupported"
+                type="button"
+                class="hidden rounded-lg px-3 py-2 text-sm font-medium hover:bg-teal-700 sm:block"
+                title="เปิดหน้าต่างแสดงรายการและ QR ให้ลูกค้า (ลากไปจอที่ 2)"
+                @click="openCustomerDisplay"
+            >
+                จอลูกค้า
+            </button>
             <RouterLink v-if="session.can('kitchen.view')" :to="{ name: 'kitchen' }" class="hidden rounded-lg px-3 py-2 text-sm font-medium hover:bg-teal-700 sm:block">จอครัว</RouterLink>
             <RouterLink :to="{ name: 'stores' }" class="hidden rounded-lg px-3 py-2 text-sm font-medium hover:bg-teal-700 sm:block">เปลี่ยนสาขา</RouterLink>
             <button type="button" class="rounded-lg px-3 py-2 text-sm font-medium hover:bg-teal-700" @click="logout">ออก</button>

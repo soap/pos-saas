@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, watchEffect } from 'vue';
 import { api, newIdempotencyKey } from '@pos/api/client';
 import type { DiningTable, KitchenTicket, KitchenTicketStatus, Menu, MenuProduct, ModifierOption, Order, OrderItemInput, OrderType } from '@pos/api/types';
+import { type DisplayLine, type DisplayState, showBasket } from '@pos/lib/customerDisplay';
 import { useSessionStore } from '@pos/stores/session';
 
 export interface DraftLine {
@@ -57,6 +58,39 @@ export const usePosStore = defineStore('pos', () => {
     const hasPendingKitchenWork = computed(() => order.value?.kitchen_tickets?.some((t) => ['queued', 'preparing', 'ready'].includes(t.status)) ?? false);
     const selectedTable = computed(() => tables.value.find((t) => t.id === selectedTableId.value) ?? null);
     const isOrderOpen = computed(() => order.value !== null && !['completed', 'cancelled'].includes(order.value.status));
+
+    /** สิ่งที่จอลูกค้าเห็น: รายการในออเดอร์ที่ยังเปิด + ตะกร้า; ไม่มีทั้งคู่ (รวมถึงออเดอร์ที่ปิดแล้ว) = idle */
+    const customerDisplayState = computed<DisplayState>(() => {
+        const items = isOrderOpen.value ? activeItems.value : [];
+        if (items.length === 0 && lines.value.length === 0) {
+            return { stage: 'idle' };
+        }
+        const displayLines: DisplayLine[] = [
+            ...items.map((item) => ({
+                name: item.name,
+                options: item.modifiers.map((m) => m.name),
+                quantity: item.quantity,
+                total_satang: item.line_total_satang,
+            })),
+            ...lines.value.map((line) => ({
+                name: line.product.name,
+                options: line.options.map((o) => o.name),
+                quantity: line.quantity,
+                total_satang: lineTotal(line),
+            })),
+        ];
+        const openOrder = isOrderOpen.value ? order.value : null;
+
+        return {
+            stage: 'cart',
+            lines: displayLines,
+            discount_satang: openOrder?.discount_satang ?? 0,
+            total_satang: (openOrder?.total_satang ?? 0) + draftTotalSatang.value,
+            estimated: lines.value.length > 0,
+        };
+    });
+    // store อยู่ตลอดอายุแท็บ — จอลูกค้าตามได้แม้ออกจากหน้าขายไปหน้าใบเสร็จ
+    watchEffect(() => showBasket(customerDisplayState.value, useSessionStore().context?.store?.name ?? null));
 
     function lineTotal(line: DraftLine): number {
         const deltas = line.options.reduce((sum, option) => sum + option.price_delta_satang, 0);

@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { api, newIdempotencyKey } from '@pos/api/client';
 import type { Order, Payment, QrInstruction } from '@pos/api/types';
 import BaseModal from '@pos/components/BaseModal.vue';
+import { clearPendingPayment, showPayment } from '@pos/lib/customerDisplay';
 import { formatBaht, parseBahtToSatang } from '@pos/lib/money';
 import { useStoreActivity } from '@pos/lib/realtime';
 import { errorMessage, toastError } from '@pos/lib/toast';
@@ -49,6 +50,7 @@ async function payCash(): Promise<void> {
             cashKey,
         );
         cashPayment.value = response.data;
+        showPaidOnCustomerDisplay(response.data);
     } catch (e) {
         toastError(e);
     } finally {
@@ -82,6 +84,13 @@ async function startQr(): Promise<void> {
         qrPayment.value = response.data;
         qr.value = response.qr;
         qrImage.value = response.qr.payload ? await QRCode.toDataURL(response.qr.payload, { width: 320, margin: 1 }) : response.qr.image_url;
+        showPayment({
+            stage: 'qr',
+            amount_satang: response.data.amount_satang,
+            qr_payload: response.qr.payload,
+            qr_image_url: response.qr.image_url,
+            requires_slip: response.qr.requires_slip,
+        });
         schedulePoll();
     } catch (e) {
         qrError.value = errorMessage(e);
@@ -114,9 +123,12 @@ async function pollPayment(): Promise<void> {
         // เน็ตสะดุดชั่วคราว — poll รอบถัดไปต่อ
     }
     if (qrPayment.value.status === 'succeeded') {
+        showPaidOnCustomerDisplay(qrPayment.value);
         emit('paid', qrPayment.value);
     } else if (qrInFlight.value) {
         schedulePoll();
+    } else {
+        clearPendingPayment();
     }
 }
 
@@ -167,6 +179,7 @@ async function cancelQr(): Promise<void> {
 
 function resetQr(): void {
     stopPolling();
+    clearPendingPayment();
     qrPayment.value = null;
     qr.value = null;
     qrImage.value = null;
@@ -182,7 +195,15 @@ function close(): void {
     emit('close');
 }
 
-onBeforeUnmount(stopPolling);
+/** แสดงผลบนจอลูกค้าเมื่อ server ยืนยันแล้วเท่านั้น (QR ที่แสดงไม่ใช่หลักฐานว่าจ่ายแล้ว) */
+function showPaidOnCustomerDisplay(payment: Payment): void {
+    showPayment({ stage: 'paid', method: payment.method, amount_satang: payment.amount_satang, change_satang: payment.change_satang });
+}
+
+onBeforeUnmount(() => {
+    stopPolling();
+    clearPendingPayment();
+});
 </script>
 
 <template>
