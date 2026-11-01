@@ -3,7 +3,7 @@ name: Tests
 on:
   push:
     branches:
-      - master
+      - main
       - '*.x'
   pull_request:
   schedule:
@@ -23,6 +23,29 @@ jobs:
 
     name: PHP ${{ matrix.php }}
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: pos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos -d pos_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: pos_test
+      DB_USERNAME: pos
+      DB_PASSWORD: secret
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -31,7 +54,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pgsql, pdo_pgsql
           coverage: none
 
       - name: Install Composer dependencies

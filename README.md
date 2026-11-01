@@ -1,5 +1,10 @@
 # POS SaaS — Laravel (MVP ร้านก๋วยเตี๋ยว)
 
+[![Tests](https://github.com/soap/pos-saas/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/soap/pos-saas/actions/workflows/tests.yml)
+[![Code Style](https://github.com/soap/pos-saas/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/soap/pos-saas/actions/workflows/lint.yml)
+![PHP](https://img.shields.io/badge/PHP-8.4%20%7C%208.5-777BB4?logo=php&logoColor=white)
+![Laravel](https://img.shields.io/badge/Laravel-12-FF2D20?logo=laravel&logoColor=white)
+
 ระบบ POS แบบ SaaS ตามเอกสาร **Laravel POS SaaS — ERD & Database Schema Specification v1.1** (`docs/`)
 Multi-tenant / Multi-store บน Laravel 12 + PostgreSQL + Sanctum ประกอบด้วย 3 ส่วน:
 
